@@ -1,5 +1,5 @@
 import { createApp } from 'vue'
-import 'leaflet/dist/leaflet.css'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import './style.css'
 import App from './App.vue'
 

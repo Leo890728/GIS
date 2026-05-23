@@ -1,181 +1,243 @@
-<script setup>
-import { onMounted, ref } from 'vue'
-import L from 'leaflet'
-import 'leaflet.vectorgrid'
+﻿<script setup>
+import { computed, onMounted, ref } from 'vue'
+import Sidebar from './components/Sidebar.vue'
+import TopToolbar from './components/TopToolbar.vue'
+import MapCanvasShell from './components/MapCanvasShell.vue'
 
-const mapEl = ref(null)
-const map = ref(null)
-const TILE_SERVER = 'http://localhost:5000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+
 const layerState = ref({
   county: {
-    label: '直轄市/縣市界線',
-    layerName: 'county',
-    url: `${TILE_SERVER}/tiles/county/{z}/{x}/{y}.pbf`,
-    minZoom: 5,
-    maxZoom: 9,
-    active: true,
-    layer: null
+    label: '縣市界線',
+    sourceId: 'county-source',
+    layerId: 'county-line',
+    sourceLayer: 'county',
+    url: 'http://localhost:5000/tiles/county/{z}/{x}/{y}.pbf',
+    color: '#2f7df4',
+    maxNativeZoom: 9,
+    minVisibleZoom: 5,
+    active: true
   },
   township: {
     label: '鄉鎮市區界線',
-    layerName: 'township',
-    url: `${TILE_SERVER}/tiles/township/{z}/{x}/{y}.pbf`,
-    minZoom: 8,
-    maxZoom: 12,
-    active: false,
-    layer: null
+    sourceId: 'township-source',
+    layerId: 'township-line',
+    sourceLayer: 'township',
+    url: 'http://localhost:5000/tiles/township/{z}/{x}/{y}.pbf',
+    color: '#27a693',
+    maxNativeZoom: 12,
+    minVisibleZoom: 8,
+    active: true
   },
   village: {
-    label: '村里界圖',
-    layerName: 'village',
-    url: `${TILE_SERVER}/tiles/village/{z}/{x}/{y}.pbf`,
-    minZoom: 12,
-    maxZoom: 18,
-    active: false,
-    layer: null
+    label: '村里界線',
+    sourceId: 'village-source',
+    layerId: 'village-line',
+    sourceLayer: 'village',
+    url: 'http://localhost:5000/tiles/village/{z}/{x}/{y}.pbf',
+    color: '#d17827',
+    maxNativeZoom: 14,
+    minVisibleZoom: 12,
+    active: true
   }
 })
-const status = ref({ loading: false, error: '' })
 
-const LAYER_STYLES = {
-  county: { color: '#1d4ed8', weight: 2, fill: true, fillColor: '#1d4ed8', fillOpacity: 0.08 },
-  township: { color: '#0f766e', weight: 1.5, fill: true, fillColor: '#0f766e', fillOpacity: 0.06 },
-  village: { color: '#7c2d12', weight: 1, fill: true, fillColor: '#7c2d12', fillOpacity: 0.05 }
-}
+const rangeTree = ref([])
+const selectedVillageCodes = ref([])
+const isSidebarCollapsed = ref(false)
 
-const HOVER_STYLES = {
-  county: { color: '#1d4ed8', weight: 2.5, fill: true, fillColor: '#1d4ed8', fillOpacity: 0.25 },
-  township: { color: '#0f766e', weight: 2, fill: true, fillColor: '#0f766e', fillOpacity: 0.22 },
-  village: { color: '#7c2d12', weight: 1.5, fill: true, fillColor: '#7c2d12', fillOpacity: 0.2 }
-}
-
-const getFeatureId = (feature) => {
-  if (feature?.id !== undefined && feature?.id !== null) return feature.id
-  const props = feature?.properties || {}
-  const primaryKeys = ['id', 'ID', 'Id', 'OBJECTID', 'FID', 'OBJECT_ID', 'GID']
-  for (const key of primaryKeys) {
-    if (props[key] !== undefined && props[key] !== null) return props[key]
-  }
-  const entries = Object.keys(props)
-    .sort()
-    .map((key) => `${key}:${props[key]}`)
-    .join('|')
-  return entries || undefined
-}
-
-const createMap = () => {
-  map.value = L.map(mapEl.value, {
-    center: [23.6978, 120.9605],
-    zoom: 7,
-    maxZoom: 18,
-  })
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map.value)
-}
-
-const createVectorLayer = (key) => {
+const toggleLayer = (key) => {
   const entry = layerState.value[key]
-  const layer = L.vectorGrid.protobuf(entry.url, {
-    vectorTileLayerStyles: {
-      [entry.layerName]: LAYER_STYLES[key]
-    },
-    minZoom: entry.minZoom,
-    maxZoom: entry.maxZoom,
-    interactive: true,
-    getFeatureId
-  })
-
-  layer.on('loading', () => {
-    status.value.loading = true
-  })
-  layer.on('load', () => {
-    status.value.loading = false
-  })
-  layer.on('tileerror', (event) => {
-    status.value.loading = false
-    status.value.error = event.error?.message || 'Tile load error'
-  })
-
-  layer.on('mouseover', (event) => {
-    const id = getFeatureId(event.layer?.feature || { properties: event.layer?.properties, id: event.layer?.id })
-    if (!id) return
-    layer.setFeatureStyle(id, HOVER_STYLES[key])
-  })
-
-  layer.on('mouseout', (event) => {
-    const id = getFeatureId(event.layer?.feature || { properties: event.layer?.properties, id: event.layer?.id })
-    if (!id) return
-    layer.resetFeatureStyle(id)
-  })
-
-  return layer
-}
-
-const toggleLayer = async (key) => {
-  const entry = layerState.value[key]
+  if (!entry) return
   entry.active = !entry.active
-  if (entry.active) {
-    if (!entry.layer) {
-      entry.layer = createVectorLayer(key)
+}
+
+const getTownVillageCodes = (town) =>
+  (town?.villages || []).map((village) => village.villageCode).filter(Boolean)
+
+const getCountyVillageCodes = (county) =>
+  (county?.townships || []).flatMap((town) => getTownVillageCodes(town))
+
+const toggleVillage = (payload) => {
+  const villageCode = payload?.villageCode
+  if (!villageCode) return
+
+  const current = new Set(selectedVillageCodes.value)
+  if (current.has(villageCode)) {
+    current.delete(villageCode)
+  } else {
+    current.add(villageCode)
+  }
+  selectedVillageCodes.value = [...current]
+}
+
+const toggleTown = (townCode) => {
+  const town = rangeTree.value.flatMap((county) => county.townships || []).find((row) => row.townCode === townCode)
+  if (!town) return
+
+  const villageCodes = getTownVillageCodes(town)
+  if (!villageCodes.length) return
+
+  const current = new Set(selectedVillageCodes.value)
+  const isAllSelected = villageCodes.every((code) => current.has(code))
+
+  for (const code of villageCodes) {
+    if (isAllSelected) {
+      current.delete(code)
+    } else {
+      current.add(code)
     }
-    entry.layer.addTo(map.value)
-  } else if (entry.layer) {
-    map.value.removeLayer(entry.layer)
+  }
+
+  selectedVillageCodes.value = [...current]
+}
+
+const toggleCounty = (countyCode) => {
+  const county = rangeTree.value.find((row) => row.countyCode === countyCode)
+  if (!county) return
+
+  const villageCodes = getCountyVillageCodes(county)
+  if (!villageCodes.length) return
+
+  const current = new Set(selectedVillageCodes.value)
+  const isAllSelected = villageCodes.every((code) => current.has(code))
+
+  for (const code of villageCodes) {
+    if (isAllSelected) {
+      current.delete(code)
+    } else {
+      current.add(code)
+    }
+  }
+
+  selectedVillageCodes.value = [...current]
+}
+
+const normalizeRangeTree = (payload) => {
+  const counties = Array.isArray(payload?.counties) ? payload.counties : []
+  return counties.map((county) => ({
+    countyId: county?.countyId || '',
+    countyCode: county?.countyCode || '',
+    countyName: county?.countyName || county?.countyEng || county?.countyCode || '未知縣市',
+    countyEng: county?.countyEng || '',
+    townships: Array.isArray(county?.townships)
+      ? county.townships.map((town) => ({
+          townId: town?.townId || '',
+          townCode: town?.townCode || '',
+          townName: town?.townName || town?.townEng || town?.townCode || '未知鄉鎮',
+          townEng: town?.townEng || '',
+          villages: Array.isArray(town?.villages)
+            ? town.villages.map((village) => ({
+                villageCode: village?.villageCode || '',
+                villageName: village?.villageName || village?.villageEng || village?.villageCode || '未知村里',
+                villageEng: village?.villageEng || ''
+              }))
+            : []
+        }))
+      : []
+  }))
+}
+
+const selectedTownCodes = computed(() => {
+  const selectedVillageSet = new Set(selectedVillageCodes.value)
+  const result = []
+
+  for (const county of rangeTree.value) {
+    for (const town of county.townships || []) {
+      const villageCodes = getTownVillageCodes(town)
+      if (!villageCodes.length) continue
+      if (villageCodes.every((code) => selectedVillageSet.has(code))) {
+        result.push(town.townCode)
+      }
+    }
+  }
+
+  return result
+})
+
+const loadRangesTree = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/regions/tree`)
+    if (!response.ok) {
+      throw new Error(`Failed to load regions tree: ${response.status}`)
+    }
+
+    const payload = await response.json()
+    const tree = normalizeRangeTree(payload)
+    rangeTree.value = tree
+
+    const availableVillageCodes = new Set(
+      tree.flatMap((county) => getCountyVillageCodes(county)).filter(Boolean)
+    )
+
+    selectedVillageCodes.value = selectedVillageCodes.value.filter((code) => availableVillageCodes.has(code))
+  } catch (error) {
+    console.error(error)
+    rangeTree.value = []
+    selectedVillageCodes.value = []
   }
 }
 
-onMounted(async () => {
-  createMap()
-  const countyLayer = createVectorLayer('county')
-  layerState.value.county.layer = countyLayer
-  countyLayer.addTo(map.value)
+onMounted(() => {
+  loadRangesTree()
 })
 </script>
 
 <template>
-  <div class="page">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">Leaflet + GeoJSON</p>
-        <h1>台灣行政界線圖層切換</h1>
-        <p class="subtitle">三個開關，分別顯示直轄市/縣市、鄉鎮市區、村里界線。</p>
-      </div>
-      <div class="legend">
-        <div class="legend-row">
-          <span class="legend-swatch swatch-county"></span>
-          <span>直轄市/縣市界線</span>
-        </div>
-        <div class="legend-row">
-          <span class="legend-swatch swatch-township"></span>
-          <span>鄉鎮市區界線</span>
-        </div>
-        <div class="legend-row">
-          <span class="legend-swatch swatch-village"></span>
-          <span>村里界圖</span>
-        </div>
-      </div>
-    </header>
+  <div class="map-tool" :class="{ collapsed: isSidebarCollapsed }">
+    <Sidebar
+      :layer-state="layerState"
+      :range-tree="rangeTree"
+      :selected-village-codes="selectedVillageCodes"
+      :collapsed="isSidebarCollapsed"
+      @toggle-layer="toggleLayer"
+      @toggle-county="toggleCounty"
+      @toggle-town="toggleTown"
+      @toggle-village="toggleVillage"
+      @toggle-collapse="isSidebarCollapsed = !isSidebarCollapsed"
+    />
 
-    <section class="controls">
-      <button
-        v-for="(entry, key) in layerState"
-        :key="key"
-        class="toggle"
-        :class="{ active: entry.active }"
-        type="button"
-        @click="toggleLayer(key)"
-      >
-        <span class="toggle-dot"></span>
-        <span>{{ entry.label }}</span>
-      </button>
-      <div class="status" v-if="status.loading">正在載入圖層…</div>
-      <div class="status error" v-else-if="status.error">{{ status.error }}</div>
-    </section>
-
-    <section class="map-shell">
-      <div ref="mapEl" class="map"></div>
-    </section>
+    <main class="workspace">
+      <TopToolbar />
+      <MapCanvasShell
+        :layer-state="layerState"
+        :selected-town-codes="selectedTownCodes"
+        :selected-village-codes="selectedVillageCodes"
+        @toggle-layer="toggleLayer"
+      />
+    </main>
   </div>
 </template>
+
+<style scoped>
+.map-tool {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  transition: grid-template-columns 260ms cubic-bezier(0.4, 0, 0.2, 1);
+  background: #0b1220;
+  color: #eaf1ff;
+  font-family: Inter, 'Noto Sans TC', sans-serif;
+}
+
+.map-tool.collapsed {
+  grid-template-columns: 84px 1fr;
+}
+
+.workspace {
+  background: #0f1b2d;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .map-tool {
+    grid-template-columns: 1fr;
+  }
+
+  .map-tool.collapsed {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
