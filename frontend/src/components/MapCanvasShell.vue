@@ -1,18 +1,16 @@
-﻿<script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+<script setup>
+import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import maplibregl from 'maplibre-gl'
+import { getBoundaryLayerIds, useMapLayers } from './map/useMapLayers'
+import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
 
 const props = defineProps({
   layerState: {
     type: Object,
     required: true
   },
-  selectedTownCodes: {
-    type: Array,
-    required: true
-  },
-  selectedVillageCodes: {
-    type: Array,
+  selectedRangeGeoJson: {
+    type: Object,
     required: true
   }
 })
@@ -22,59 +20,16 @@ const emit = defineEmits(['toggle-layer'])
 const mapEl = ref(null)
 const map = ref(null)
 const status = ref({ loading: false, error: '' })
+const layerStateRef = toRef(props, 'layerState')
+const selectedRangeGeoJsonRef = toRef(props, 'selectedRangeGeoJson')
 
 const orderedLayerEntries = computed(() => Object.entries(props.layerState))
-const townshipRangeFillLayerId = 'township-range-fill'
-const villageRangeFillLayerId = 'village-range-fill'
-
-const getLineWidthExpression = (key) => {
-  if (key === 'county') {
-    return ['interpolate', ['linear'], ['zoom'], 5, 2.2, 9, 2.0, 12, 1.8, 16, 1.6, 20, 1.4]
-  }
-  if (key === 'township') {
-    return ['interpolate', ['linear'], ['zoom'], 8, 1.6, 12, 1.4, 16, 1.1, 20, 0.9]
-  }
-  return ['interpolate', ['linear'], ['zoom'], 12, 1.2, 14, 1.0, 16, 0.8, 20, 0.6]
-}
+const { addBoundaryLayers, updateAllLayerVisibility } = useMapLayers(map, layerStateRef)
+const { addRangeLayers, updateRangeGeoJson } = useMapRanges(map, selectedRangeGeoJsonRef)
 
 const refreshLoading = () => {
   if (!map.value) return
   status.value.loading = !map.value.areTilesLoaded()
-}
-
-const updateLayerVisibility = (key) => {
-  const m = map.value
-  if (!m) return
-
-  const entry = props.layerState[key]
-  if (!entry || !m.getLayer(entry.layerId)) return
-  m.setLayoutProperty(entry.layerId, 'visibility', entry.active ? 'visible' : 'none')
-}
-
-const getTownshipRangeFilter = () => {
-  if (!props.selectedTownCodes.length) {
-    return ['==', ['get', 'TOWNCODE'], '__no_match__']
-  }
-  return ['in', ['get', 'TOWNCODE'], ['literal', props.selectedTownCodes]]
-}
-
-const updateTownshipRangeFillFilter = () => {
-  const m = map.value
-  if (!m || !m.getLayer(townshipRangeFillLayerId)) return
-  m.setFilter(townshipRangeFillLayerId, getTownshipRangeFilter())
-}
-
-const getVillageRangeFilter = () => {
-  if (!props.selectedVillageCodes.length) {
-    return ['==', ['get', 'VILLCODE'], '__no_match__']
-  }
-  return ['in', ['get', 'VILLCODE'], ['literal', props.selectedVillageCodes]]
-}
-
-const updateVillageRangeFillFilter = () => {
-  const m = map.value
-  if (!m || !m.getLayer(villageRangeFillLayerId)) return
-  m.setFilter(villageRangeFillLayerId, getVillageRangeFilter())
 }
 
 const enforceLayerOrder = () => {
@@ -82,82 +37,15 @@ const enforceLayerOrder = () => {
   if (!m) return
 
   const orderedIds = [
-    townshipRangeFillLayerId,
-    villageRangeFillLayerId,
-    props.layerState.village?.layerId,
-    props.layerState.township?.layerId,
-    props.layerState.county?.layerId
-  ].filter(Boolean)
+    ...rangeLayerIds,
+    ...getBoundaryLayerIds(props.layerState)
+  ]
 
   for (const id of orderedIds) {
     if (m.getLayer(id)) {
       m.moveLayer(id)
     }
   }
-}
-
-const addBoundaryLayer = (key) => {
-  const m = map.value
-  if (!m) return
-
-  const entry = props.layerState[key]
-  if (!entry) return
-  if (m.getSource(entry.sourceId) || m.getLayer(entry.layerId)) return
-
-  m.addSource(entry.sourceId, {
-    type: 'vector',
-    tiles: [entry.url],
-    minzoom: 0,
-    maxzoom: entry.maxNativeZoom
-  })
-
-  if (key === 'township' && !m.getLayer(townshipRangeFillLayerId)) {
-    m.addLayer({
-      id: townshipRangeFillLayerId,
-      type: 'fill',
-      source: entry.sourceId,
-      'source-layer': entry.sourceLayer,
-      minzoom: entry.minVisibleZoom,
-      filter: getTownshipRangeFilter(),
-      paint: {
-        'fill-color': '#57a6f5',
-        'fill-opacity': 0.3
-      }
-    })
-  }
-
-  if (key === 'village' && !m.getLayer(villageRangeFillLayerId)) {
-    m.addLayer({
-      id: villageRangeFillLayerId,
-      type: 'fill',
-      source: entry.sourceId,
-      'source-layer': entry.sourceLayer,
-      minzoom: entry.minVisibleZoom,
-      filter: getVillageRangeFilter(),
-      paint: {
-        'fill-color': '#d17827',
-        'fill-opacity': 0.35
-      }
-    })
-  }
-
-  m.addLayer({
-    id: entry.layerId,
-    type: 'line',
-    source: entry.sourceId,
-    'source-layer': entry.sourceLayer,
-    minzoom: entry.minVisibleZoom,
-    layout: {
-      'line-join': 'round',
-      'line-cap': 'round',
-      visibility: entry.active ? 'visible' : 'none'
-    },
-    paint: {
-      'line-color': entry.color,
-      'line-width': getLineWidthExpression(key),
-      'line-opacity': 0.9
-    }
-  })
 }
 
 const createMap = () => {
@@ -190,9 +78,10 @@ const createMap = () => {
   map.value.addControl(new maplibregl.NavigationControl(), 'top-right')
 
   map.value.on('load', () => {
-    Object.keys(props.layerState).forEach(addBoundaryLayer)
+    addRangeLayers()
+    addBoundaryLayers()
     enforceLayerOrder()
-    Object.keys(props.layerState).forEach(updateLayerVisibility)
+    updateAllLayerVisibility()
     refreshLoading()
   })
 
@@ -211,30 +100,18 @@ const createMap = () => {
   })
 }
 
-const toggleLayer = (key) => {
-  emit('toggle-layer', key)
-}
-
 watch(
   () => props.layerState,
   () => {
-    Object.keys(props.layerState).forEach(updateLayerVisibility)
+    updateAllLayerVisibility()
   },
   { deep: true }
 )
 
 watch(
-  () => props.selectedTownCodes,
+  () => props.selectedRangeGeoJson,
   () => {
-    updateTownshipRangeFillFilter()
-  },
-  { deep: true }
-)
-
-watch(
-  () => props.selectedVillageCodes,
-  () => {
-    updateVillageRangeFillFilter()
+    updateRangeGeoJson()
   },
   { deep: true }
 )
@@ -262,7 +139,7 @@ onBeforeUnmount(() => {
         class="legend-row"
         :class="{ inactive: !row.active }"
         type="button"
-        @click="toggleLayer(key)"
+        @click="emit('toggle-layer', key)"
       >
         <span class="legend-chip" :style="{ backgroundColor: row.color }"></span>
         <span>{{ row.label }}</span>

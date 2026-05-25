@@ -1,13 +1,8 @@
-﻿<script setup>
-import { computed, ref } from 'vue'
+<script setup>
+import { ref } from 'vue'
 import {
-  Check,
-  ChevronDown,
-  ChevronRight,
   Circle,
-  Ellipsis,
   Hand,
-  Minus,
   MousePointer2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -15,6 +10,8 @@ import {
   Slash,
   Square
 } from 'lucide-vue-next'
+import LayerPanel from '../features/layers/LayerPanel.vue'
+import RangePanel from '../features/ranges/RangePanel.vue'
 
 const props = defineProps({
   layerState: {
@@ -25,7 +22,7 @@ const props = defineProps({
     type: Array,
     required: true
   },
-  selectedVillageCodes: {
+  selectedRangeIds: {
     type: Array,
     required: true
   },
@@ -35,96 +32,9 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['toggle-layer', 'toggle-county', 'toggle-town', 'toggle-village', 'toggle-collapse'])
+const emit = defineEmits(['toggle-layer', 'toggle-range', 'toggle-collapse'])
 
 const activeMode = ref('ranges')
-const expandedCountyCodes = ref([])
-const expandedTownCodes = ref([])
-
-const selectedVillageCodeSet = computed(() => new Set(props.selectedVillageCodes))
-
-const getTownVillageCodes = (town) =>
-  (town?.villages || []).map((village) => village.villageCode).filter(Boolean)
-
-const getCountyVillageCodes = (county) =>
-  (county?.townships || []).flatMap((town) => getTownVillageCodes(town))
-
-const totalVillageCount = computed(() => props.rangeTree.reduce((total, county) => total + getCountyVillageCodes(county).length, 0))
-const selectedVillageCount = computed(() => props.selectedVillageCodes.length)
-
-const layerDetailMap = {
-  county: 'County Boundary',
-  township: 'Township Boundary',
-  village: 'Village Boundary'
-}
-
-const layerItems = computed(() =>
-  Object.entries(props.layerState).map(([key, value]) => ({
-    key,
-    name: value.label,
-    detail: layerDetailMap[key] || value.sourceLayer,
-    enabled: value.active
-  }))
-)
-
-const activeLayerCount = computed(() => layerItems.value.filter((item) => item.enabled).length)
-
-const isCountyExpanded = (countyCode) => expandedCountyCodes.value.includes(countyCode)
-const isTownExpanded = (townCode) => expandedTownCodes.value.includes(townCode)
-
-const toggleCountyExpand = (countyCode) => {
-  expandedCountyCodes.value = expandedCountyCodes.value.includes(countyCode)
-    ? expandedCountyCodes.value.filter((code) => code !== countyCode)
-    : [...expandedCountyCodes.value, countyCode]
-}
-
-const toggleTownExpand = (townCode) => {
-  expandedTownCodes.value = expandedTownCodes.value.includes(townCode)
-    ? expandedTownCodes.value.filter((code) => code !== townCode)
-    : [...expandedTownCodes.value, townCode]
-}
-
-const isVillageSelected = (villageCode) => selectedVillageCodeSet.value.has(villageCode)
-
-const townSelectedVillageCount = (town) => getTownVillageCodes(town).filter((code) => selectedVillageCodeSet.value.has(code)).length
-
-const isTownFullySelected = (town) => {
-  const codes = getTownVillageCodes(town)
-  return codes.length > 0 && codes.every((code) => selectedVillageCodeSet.value.has(code))
-}
-
-const isTownPartiallySelected = (town) => {
-  const selected = townSelectedVillageCount(town)
-  return selected > 0 && !isTownFullySelected(town)
-}
-
-const countySelectedVillageCount = (county) => getCountyVillageCodes(county).filter((code) => selectedVillageCodeSet.value.has(code)).length
-
-const isCountyFullySelected = (county) => {
-  const codes = getCountyVillageCodes(county)
-  return codes.length > 0 && codes.every((code) => selectedVillageCodeSet.value.has(code))
-}
-
-const isCountyPartiallySelected = (county) => {
-  const selected = countySelectedVillageCount(county)
-  return selected > 0 && !isCountyFullySelected(county)
-}
-
-const toggleLayer = (key) => {
-  emit('toggle-layer', key)
-}
-
-const toggleCounty = (countyCode) => {
-  emit('toggle-county', countyCode)
-}
-
-const toggleTown = (townCode) => {
-  emit('toggle-town', townCode)
-}
-
-const toggleVillage = (townCode, villageCode) => {
-  emit('toggle-village', { townCode, villageCode })
-}
 
 const openMode = (mode) => {
   activeMode.value = mode
@@ -213,117 +123,18 @@ const drawingTools = [
         </button>
       </div>
 
-      <section v-if="activeMode === 'layers'" class="layers-panel">
-        <div class="panel-title-row">
-          <h3>Map Layers</h3>
-          <span class="count-badge">{{ activeLayerCount }} active</span>
-        </div>
+      <LayerPanel
+        v-if="activeMode === 'layers'"
+        :layer-state="layerState"
+        @toggle-layer="emit('toggle-layer', $event)"
+      />
 
-        <article v-for="layer in layerItems" :key="layer.key" class="region-card expanded">
-          <button class="region-row region-toggle" type="button" :aria-pressed="layer.enabled" @click="toggleLayer(layer.key)">
-            <div class="check-box" :class="{ selected: layer.enabled }">
-              <Check v-if="layer.enabled" :size="10" />
-            </div>
-            <div class="region-label-wrap">
-              <p class="region-name">{{ layer.name }}</p>
-              <p class="region-meta">{{ layer.detail }}</p>
-            </div>
-          </button>
-        </article>
-      </section>
-
-      <section v-else class="ranges-panel">
-        <div class="panel-title-row">
-          <h3>Ranges</h3>
-          <span class="count-badge">{{ selectedVillageCount }} / {{ totalVillageCount }} selected</span>
-        </div>
-
-        <article class="region-card expanded">
-          <header class="region-row">
-            <div class="check-box selected">
-              <Minus :size="10" />
-            </div>
-            <div class="region-label-wrap">
-              <p class="region-name">全區域</p>
-              <p class="region-meta">{{ selectedVillageCount }}/{{ totalVillageCount }} selected</p>
-            </div>
-            <ChevronDown class="caret" :size="14" />
-          </header>
-
-          <div class="county-list">
-            <article v-for="county in rangeTree" :key="county.countyCode || county.countyName" class="county-card">
-              <div class="county-row">
-                <button
-                  class="check-box county-toggle"
-                  type="button"
-                  :class="{ selected: isCountyFullySelected(county), partial: isCountyPartiallySelected(county) }"
-                  :aria-pressed="isCountyFullySelected(county)"
-                  @click="toggleCounty(county.countyCode)"
-                >
-                  <Check v-if="isCountyFullySelected(county)" :size="10" />
-                  <Minus v-else-if="isCountyPartiallySelected(county)" :size="10" />
-                </button>
-
-                <button class="county-label-btn" type="button" @click="toggleCountyExpand(county.countyCode)">
-                  <div class="region-label-wrap">
-                    <p class="region-name">{{ county.countyName }}</p>
-                    <p class="region-meta">{{ countySelectedVillageCount(county) }}/{{ getCountyVillageCodes(county).length }} 村里</p>
-                  </div>
-                  <ChevronDown v-if="isCountyExpanded(county.countyCode)" class="caret" :size="14" />
-                  <ChevronRight v-else class="caret" :size="14" />
-                </button>
-              </div>
-
-              <div v-if="isCountyExpanded(county.countyCode)" class="township-list">
-                <article v-for="town in county.townships || []" :key="town.townCode || town.townName" class="township-card">
-                  <div class="township-row">
-                    <button
-                      class="check-box township-toggle"
-                      type="button"
-                      :class="{ selected: isTownFullySelected(town), partial: isTownPartiallySelected(town) }"
-                      :aria-pressed="isTownFullySelected(town)"
-                      @click="toggleTown(town.townCode)"
-                    >
-                      <Check v-if="isTownFullySelected(town)" :size="10" />
-                      <Minus v-else-if="isTownPartiallySelected(town)" :size="10" />
-                    </button>
-
-                    <button class="town-label-btn" type="button" @click="toggleTownExpand(town.townCode)">
-                      <div class="region-label-wrap">
-                        <p class="region-name sub">{{ town.townName }}</p>
-                        <p class="region-meta">{{ townSelectedVillageCount(town) }}/{{ getTownVillageCodes(town).length }} 村里</p>
-                      </div>
-                      <ChevronDown v-if="isTownExpanded(town.townCode)" class="caret" :size="14" />
-                      <ChevronRight v-else class="caret" :size="14" />
-                    </button>
-                  </div>
-
-                  <div v-if="isTownExpanded(town.townCode)" class="village-list">
-                    <button
-                      v-for="village in town.villages || []"
-                      :key="village.villageCode || village.villageName"
-                      class="district-row district-toggle"
-                      type="button"
-                      :aria-pressed="isVillageSelected(village.villageCode)"
-                      :class="{ off: !isVillageSelected(village.villageCode) }"
-                      @click="toggleVillage(town.townCode, village.villageCode)"
-                    >
-                      <div class="check-box" :class="{ selected: isVillageSelected(village.villageCode) }">
-                        <Check v-if="isVillageSelected(village.villageCode)" :size="10" />
-                      </div>
-                      <div class="region-label-wrap">
-                        <p class="region-name sub">{{ village.villageName }}</p>
-                        <p class="region-meta">{{ village.villageCode || 'N/A' }}</p>
-                      </div>
-                      <Ellipsis class="more" :size="14" />
-                    </button>
-                  </div>
-                </article>
-              </div>
-            </article>
-          </div>
-        </article>
-      </section>
+      <RangePanel
+        v-else
+        :range-tree="rangeTree"
+        :selected-range-ids="selectedRangeIds"
+        @toggle-range="emit('toggle-range', $event)"
+      />
 
       <section v-if="activeMode === 'ranges'" class="tools-panel">
         <h3>Range Drawing Tools</h3>
@@ -348,7 +159,7 @@ const drawingTools = [
   </aside>
 </template>
 
-<style scoped>
+<style>
 .sidebar {
   background: #111a2b;
   border-right: 1px solid #2f4668;
@@ -451,11 +262,11 @@ const drawingTools = [
     color 220ms ease;
 }
 
-.icon-button :deep(svg) {
+.icon-button svg {
   transition: transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.sidebar.collapsed .icon-button :deep(svg) {
+.sidebar.collapsed .icon-button svg {
   transform: rotate(180deg);
 }
 
@@ -543,6 +354,14 @@ const drawingTools = [
   font-size: 9px;
 }
 
+.range-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 30%);
+  flex-shrink: 0;
+}
+
 .check-box {
   width: 14px;
   height: 14px;
@@ -575,7 +394,8 @@ const drawingTools = [
 }
 
 .county-card,
-.township-card {
+.township-card,
+.range-node-leaf {
   border: 1px solid #2a3a54;
   border-radius: 8px;
   background: #1a2940;
@@ -589,8 +409,8 @@ const drawingTools = [
   gap: 6px;
 }
 
-.county-label-btn,
-.town-label-btn {
+.range-label-btn,
+.range-leaf-btn {
   border: 0;
   background: transparent;
   color: inherit;
@@ -601,17 +421,14 @@ const drawingTools = [
   text-align: left;
 }
 
-.township-list {
+.range-children {
   margin-top: 6px;
   display: grid;
   gap: 6px;
 }
 
-.village-list {
-  margin-top: 6px;
+.range-children.nested {
   margin-left: 18px;
-  display: grid;
-  gap: 4px;
 }
 
 .district-row {
@@ -620,6 +437,7 @@ const drawingTools = [
   background: #1a2940;
   display: flex;
   align-items: center;
+  gap: 6px;
   padding: 7px 8px;
 }
 
@@ -630,7 +448,8 @@ const drawingTools = [
   cursor: pointer;
 }
 
-.district-row.off {
+.district-row.off,
+.range-leaf-btn.off {
   border-color: #25374e;
   background: #15263c;
 }

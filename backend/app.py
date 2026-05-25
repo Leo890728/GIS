@@ -5,7 +5,7 @@ import json
 import re
 import subprocess
 
-from flask import Flask, Response, abort
+from flask import Flask, Response, abort, request
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -42,6 +42,45 @@ def _read_geojson_properties(file_name):
 		except json.JSONDecodeError:
 			continue
 	return rows
+
+
+def _read_geojson(file_name):
+	path = GEOJSON_DIR / file_name
+	if not path.exists():
+		return {"type": "FeatureCollection", "features": []}
+
+	return json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+
+
+def _split_codes(value):
+	if not value:
+		return []
+	if isinstance(value, str):
+		return [code.strip() for code in value.split(",") if code.strip()]
+	if isinstance(value, list):
+		return [str(code).strip() for code in value if str(code).strip()]
+	return []
+
+
+@lru_cache(maxsize=1)
+def _build_region_feature_indexes():
+	county_features = _read_geojson("county.geojson").get("features", [])
+	township_features = _read_geojson("township.geojson").get("features", [])
+	village_features = _read_geojson("village.geojson").get("features", [])
+
+	def index_by_property(features, property_name):
+		index = {}
+		for feature in features:
+			code = feature.get("properties", {}).get(property_name, "")
+			if code:
+				index[code] = feature
+		return index
+
+	return {
+		"county": index_by_property(county_features, "COUNTYCODE"),
+		"township": index_by_property(township_features, "TOWNCODE"),
+		"village": index_by_property(village_features, "VILLCODE"),
+	}
 
 
 @lru_cache(maxsize=1)
@@ -157,9 +196,136 @@ def _build_regions_tree():
 	}
 
 
-@app.get("/regions/tree")
-def regions_tree():
-	return _build_regions_tree()
+def _make_range_node(node_id, name, description, color, level, code, children=None, metadata=None):
+	return {
+		"id": node_id,
+		"name": name or code or node_id,
+		"description": description or "",
+		"color": color,
+		"type": "admin",
+		"level": level,
+		"code": code or "",
+		"selectable": True,
+		"metadata": metadata or {},
+		"children": children or [],
+	}
+
+
+@lru_cache(maxsize=1)
+def _build_ranges_tree():
+	regions = _build_regions_tree()
+	ranges = []
+
+	for county in regions["counties"]:
+		township_nodes = []
+
+		for town in county.get("townships", []):
+			village_nodes = [
+				_make_range_node(
+					f"village-{village.get('villageCode', '')}",
+					village.get("villageName", ""),
+					village.get("villageEng", ""),
+					"#d17827",
+					"village",
+					village.get("villageCode", ""),
+					metadata={"sourceProperty": "VILLCODE"},
+				)
+				for village in town.get("villages", [])
+				if village.get("villageCode")
+			]
+
+			if not town.get("townCode"):
+				continue
+
+			township_nodes.append(
+				_make_range_node(
+					f"township-{town.get('townCode', '')}",
+					town.get("townName", ""),
+					town.get("townEng", ""),
+					"#27a693",
+					"township",
+					town.get("townCode", ""),
+					children=village_nodes,
+					metadata={"sourceProperty": "TOWNCODE"},
+				)
+			)
+
+		if not county.get("countyCode"):
+			continue
+
+		ranges.append(
+			_make_range_node(
+				f"county-{county.get('countyCode', '')}",
+				county.get("countyName", ""),
+				county.get("countyEng", ""),
+				"#7fb3ff",
+				"county",
+				county.get("countyCode", ""),
+				children=township_nodes,
+				metadata={"sourceProperty": "COUNTYCODE"},
+			)
+		)
+
+	return {
+		"ranges": ranges,
+		"summary": regions["summary"],
+	}
+
+
+@app.get("/ranges/tree")
+def ranges_tree():
+	return _build_ranges_tree()
+
+
+@app.route("/regions/range-geojson", methods=["GET", "POST"])
+def range_geojson():
+	if request.method == "POST":
+		payload = request.get_json(silent=True) or {}
+		county_codes = _split_codes(payload.get("countyCodes"))
+		town_codes = _split_codes(payload.get("townCodes"))
+		village_codes = _split_codes(payload.get("villageCodes"))
+	else:
+		county_codes = _split_codes(request.args.get("countyCodes"))
+		town_codes = _split_codes(request.args.get("townCodes"))
+		village_codes = _split_codes(request.args.get("villageCodes"))
+
+	indexes = _build_region_feature_indexes()
+	features = []
+	seen = set()
+	range_styles = {
+		"county": "#7fb3ff",
+		"township": "#57a6f5",
+		"village": "#d17827",
+	}
+
+	for dataset, codes in (
+		("county", county_codes),
+		("township", town_codes),
+		("village", village_codes),
+	):
+		for code in codes:
+			feature = indexes[dataset].get(code)
+			if not feature:
+				continue
+			key = f"{dataset}:{code}"
+			if key in seen:
+				continue
+			seen.add(key)
+			features.append({
+				**feature,
+				"properties": {
+					**feature.get("properties", {}),
+					"rangeId": key,
+					"rangeColor": range_styles.get(dataset, "#57a6f5"),
+					"rangeType": "admin",
+					"rangeLevel": dataset,
+				}
+			})
+
+	return {
+		"type": "FeatureCollection",
+		"features": features,
+	}
 
 
 @app.get("/tiles/<dataset>/<int:z>/<int:x>/<int:y>.pbf")
