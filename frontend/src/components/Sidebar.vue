@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import {
   Circle,
+  Database,
   Hand,
   MousePointer2,
   PanelLeftClose,
@@ -10,6 +11,8 @@ import {
   Slash,
   Square
 } from 'lucide-vue-next'
+import DataPanel from '../features/data/DataPanel.vue'
+import BasemapPanel from '../features/basemaps/BasemapPanel.vue'
 import LayerPanel from '../features/layers/LayerPanel.vue'
 import RangePanel from '../features/ranges/RangePanel.vue'
 
@@ -18,13 +21,37 @@ const props = defineProps({
     type: Object,
     required: true
   },
+  basemapState: {
+    type: Object,
+    required: true
+  },
   rangeTree: {
     type: Array,
     required: true
   },
+  dataLayerState: {
+    type: Object,
+    required: true
+  },
+  dataAggregate: {
+    type: Object,
+    required: true
+  },
+  dataLayerRuntime: {
+    type: Object,
+    required: true
+  },
+  rangePointFilterEnabled: {
+    type: Boolean,
+    default: false
+  },
   selectedRangeIds: {
     type: Array,
     required: true
+  },
+  rangeNodeLoading: {
+    type: Object,
+    default: () => ({})
   },
   collapsed: {
     type: Boolean,
@@ -32,9 +59,27 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['toggle-layer', 'toggle-range', 'toggle-collapse'])
+const emit = defineEmits([
+  'toggle-layer',
+  'update-layer-style',
+  'set-basemap',
+  'toggle-range',
+  'expand-range',
+  'toggle-data-layer',
+  'set-data-layer-mode',
+  'refresh-data-layer',
+  'set-range-point-filter-enabled',
+  'toggle-collapse'
+])
 
 const activeMode = ref('ranges')
+
+const modeLabels = {
+  basemap: 'Basemap',
+  layers: 'Boundary',
+  ranges: 'Ranges',
+  data: 'Data'
+}
 
 const openMode = (mode) => {
   activeMode.value = mode
@@ -62,7 +107,7 @@ const drawingTools = [
 <template>
   <aside class="sidebar" :class="{ collapsed: props.collapsed }">
     <header class="sidebar-header">
-      <h2 v-if="!props.collapsed">{{ activeMode === 'layers' ? 'Layers' : 'Ranges' }}</h2>
+      <h2 v-if="!props.collapsed">{{ modeLabels[activeMode] }}</h2>
       <button
         class="icon-button"
         type="button"
@@ -80,13 +125,23 @@ const drawingTools = [
       <div class="compact-mode-switch">
         <button
           class="compact-mode-btn"
+          :class="{ active: activeMode === 'basemap' }"
+          type="button"
+          :aria-pressed="activeMode === 'basemap'"
+          @click="openMode('basemap')"
+        >
+          <Circle :size="14" />
+          <span>Basemap</span>
+        </button>
+        <button
+          class="compact-mode-btn"
           :class="{ active: activeMode === 'layers' }"
           type="button"
           :aria-pressed="activeMode === 'layers'"
           @click="openMode('layers')"
         >
           <Square :size="14" />
-          <span>Layers</span>
+          <span>Boundary</span>
         </button>
         <button
           class="compact-mode-btn"
@@ -98,6 +153,16 @@ const drawingTools = [
           <Pentagon :size="14" />
           <span>Ranges</span>
         </button>
+        <button
+          class="compact-mode-btn"
+          :class="{ active: activeMode === 'data' }"
+          type="button"
+          :aria-pressed="activeMode === 'data'"
+          @click="openMode('data')"
+        >
+          <Database :size="14" />
+          <span>Data</span>
+        </button>
       </div>
     </div>
 
@@ -105,12 +170,21 @@ const drawingTools = [
       <div class="mode-switch">
         <button
           class="mode-btn"
+          :class="{ active: activeMode === 'basemap' }"
+          type="button"
+          :aria-pressed="activeMode === 'basemap'"
+          @click="activeMode = 'basemap'"
+        >
+          Basemap
+        </button>
+        <button
+          class="mode-btn"
           :class="{ active: activeMode === 'layers' }"
           type="button"
           :aria-pressed="activeMode === 'layers'"
           @click="activeMode = 'layers'"
         >
-          Layers
+          Boundary
         </button>
         <button
           class="mode-btn"
@@ -121,19 +195,50 @@ const drawingTools = [
         >
           Ranges
         </button>
+        <button
+          class="mode-btn"
+          :class="{ active: activeMode === 'data' }"
+          type="button"
+          :aria-pressed="activeMode === 'data'"
+          @click="activeMode = 'data'"
+        >
+          Data
+        </button>
       </div>
 
+      <BasemapPanel
+        v-if="activeMode === 'basemap'"
+        :basemap-state="basemapState"
+        @set-basemap="emit('set-basemap', $event)"
+      />
+
       <LayerPanel
-        v-if="activeMode === 'layers'"
+        v-else-if="activeMode === 'layers'"
         :layer-state="layerState"
         @toggle-layer="emit('toggle-layer', $event)"
+        @update-layer-style="emit('update-layer-style', $event)"
       />
 
       <RangePanel
-        v-else
+        v-else-if="activeMode === 'ranges'"
         :range-tree="rangeTree"
         :selected-range-ids="selectedRangeIds"
+        :range-node-loading="rangeNodeLoading"
         @toggle-range="emit('toggle-range', $event)"
+        @expand-range="emit('expand-range', $event)"
+      />
+
+      <DataPanel
+        v-else
+        :data-layer-state="dataLayerState"
+        :data-aggregate="dataAggregate"
+        :data-layer-runtime="dataLayerRuntime"
+        :range-point-filter-enabled="rangePointFilterEnabled"
+        :selected-range-count="selectedRangeIds.length"
+        @toggle-data-layer="emit('toggle-data-layer', $event)"
+        @set-data-layer-mode="emit('set-data-layer-mode', $event)"
+        @refresh-data-layer="emit('refresh-data-layer', $event)"
+        @set-range-point-filter-enabled="emit('set-range-point-filter-enabled', $event)"
       />
 
       <section v-if="activeMode === 'ranges'" class="tools-panel">
@@ -295,7 +400,8 @@ const drawingTools = [
 }
 
 .ranges-panel,
-.layers-panel {
+.layers-panel,
+.data-panel {
   display: grid;
   gap: 6px;
 }

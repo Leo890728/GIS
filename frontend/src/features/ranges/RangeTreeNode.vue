@@ -12,13 +12,17 @@ const props = defineProps({
     type: Array,
     required: true
   },
+  rangeNodeLoading: {
+    type: Object,
+    default: () => ({})
+  },
   depth: {
     type: Number,
     default: 0
   }
 })
 
-const emit = defineEmits(['toggle-range'])
+const emit = defineEmits(['toggle-range', 'expand-range'])
 
 const expanded = ref(false)
 const selectedSet = computed(() => new Set(props.selectedRangeIds))
@@ -27,13 +31,31 @@ const leafIds = computed(() => getLeafRangeIds(props.node))
 const selectedLeafCount = computed(() => leafIds.value.filter((id) => selectedSet.value.has(id)).length)
 const isFullySelected = computed(() => leafIds.value.length > 0 && leafIds.value.every((id) => selectedSet.value.has(id)))
 const isPartiallySelected = computed(() => selectedLeafCount.value > 0 && !isFullySelected.value)
-const hasChildren = computed(() => children.value.length > 0)
+const hasLazyStatZoneChildren = computed(
+  () => props.node.level === 'village' && Number(props.node?.metadata?.statZoneCount || 0) > 0
+)
+const hasChildren = computed(() => children.value.length > 0 || hasLazyStatZoneChildren.value)
+const statZoneCount = computed(() => Number(props.node?.metadata?.statZoneCount || 0))
+const isLoadingChildren = computed(() => props.rangeNodeLoading?.[props.node.id] === true)
 
 const rangeMeta = computed(() => {
-  if (leafIds.value.length > 1) {
-    return `${selectedLeafCount.value}/${leafIds.value.length} ${props.node.level || 'range'}`
+  if (props.node.level === 'county') {
+    return `${children.value.length} townships`
   }
-  return props.node.code || props.node.level || 'range'
+  if (props.node.level === 'township') {
+    return `${children.value.length} villages`
+  }
+  if (props.node.level === 'village') {
+    return `${statZoneCount.value} statZones`
+  }
+  return `${selectedLeafCount.value}/${leafIds.value.length} selected`
+})
+
+const leafMeta = computed(() => {
+  if (props.node.level === 'village') {
+    return `${statZoneCount.value} statZones`
+  }
+  return props.node.code || 'N/A'
 })
 
 const nodeClass = computed(() => {
@@ -46,6 +68,20 @@ const rowClass = computed(() => {
   if (props.depth === 0) return 'county-row'
   return 'township-row'
 })
+
+const toggleExpand = () => {
+  const nextExpanded = !expanded.value
+  expanded.value = nextExpanded
+
+  if (
+    nextExpanded &&
+    props.node.level === 'village' &&
+    hasLazyStatZoneChildren.value &&
+    props.node?.metadata?.statZoneLoaded !== true
+  ) {
+    emit('expand-range', props.node.id)
+  }
+}
 </script>
 
 <template>
@@ -66,12 +102,12 @@ const rowClass = computed(() => {
         v-if="hasChildren"
         class="range-label-btn"
         type="button"
-        @click="expanded = !expanded"
+        @click="toggleExpand"
       >
         <span class="range-color-dot" :style="{ backgroundColor: node.color }"></span>
         <div class="region-label-wrap">
           <p class="region-name" :class="{ sub: depth > 0 }">{{ node.name }}</p>
-          <p class="region-meta">{{ rangeMeta }}</p>
+          <p class="region-meta">{{ isLoadingChildren ? 'Loading statZones...' : rangeMeta }}</p>
         </div>
         <ChevronDown v-if="expanded" class="caret" :size="14" />
         <ChevronRight v-else class="caret" :size="14" />
@@ -84,8 +120,10 @@ const rowClass = computed(() => {
         :key="child.id"
         :node="child"
         :selected-range-ids="selectedRangeIds"
+        :range-node-loading="rangeNodeLoading"
         :depth="depth + 1"
         @toggle-range="emit('toggle-range', $event)"
+        @expand-range="emit('expand-range', $event)"
       />
     </div>
   </article>
@@ -104,7 +142,7 @@ const rowClass = computed(() => {
     <span class="range-color-dot" :style="{ backgroundColor: node.color }"></span>
     <div class="region-label-wrap">
       <p class="region-name sub">{{ node.name }}</p>
-      <p class="region-meta">{{ node.code || 'N/A' }}</p>
+      <p class="region-meta">{{ leafMeta }}</p>
     </div>
     <Ellipsis class="more" :size="14" />
   </button>

@@ -1,0 +1,64 @@
+def point_in_ring(lng, lat, ring):
+    if not isinstance(ring, list) or len(ring) < 4:
+        return False
+
+    inside = False
+    j = len(ring) - 1
+    for i, current in enumerate(ring):
+        previous = ring[j]
+        if not isinstance(current, list) or not isinstance(previous, list):
+            j = i
+            continue
+        if len(current) < 2 or len(previous) < 2:
+            j = i
+            continue
+        xi, yi = current[:2]
+        xj, yj = previous[:2]
+        if ((yi > lat) != (yj > lat)) and (lng < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def point_in_polygon(lng, lat, polygon_coordinates):
+    if not isinstance(polygon_coordinates, list) or not polygon_coordinates:
+        return False
+    if not point_in_ring(lng, lat, polygon_coordinates[0]):
+        return False
+    for hole in polygon_coordinates[1:]:
+        if point_in_ring(lng, lat, hole):
+            return False
+    return True
+
+
+def point_in_geometry(lng, lat, geometry):
+    if not isinstance(geometry, dict):
+        return False
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    if geometry_type == "Polygon":
+        return point_in_polygon(lng, lat, coordinates)
+    if geometry_type == "MultiPolygon":
+        return any(point_in_polygon(lng, lat, polygon) for polygon in coordinates or [])
+    return False
+
+
+def point_in_geojson_range(lng, lat, range_def):
+    if not range_def:
+        return True
+    if isinstance(range_def, list):
+        return True
+    if not isinstance(range_def, dict):
+        raise ValueError("range must be bbox or GeoJSON Polygon/MultiPolygon")
+
+    range_type = range_def.get("type")
+    if range_type in ("Polygon", "MultiPolygon"):
+        return point_in_geometry(lng, lat, range_def)
+    if range_type == "Feature":
+        return point_in_geometry(lng, lat, range_def.get("geometry"))
+    if range_type == "FeatureCollection":
+        return any(point_in_geojson_range(lng, lat, feature) for feature in range_def.get("features", []))
+    if "bbox" in range_def:
+        return True
+
+    raise ValueError("range must be bbox or GeoJSON Polygon/MultiPolygon")

@@ -1,15 +1,18 @@
-const getLineWidthExpression = (key) => {
-  if (key === 'county') {
-    return ['interpolate', ['linear'], ['zoom'], 5, 2.2, 9, 2.0, 12, 1.8, 16, 1.6, 20, 1.4]
-  }
-  if (key === 'township') {
-    return ['interpolate', ['linear'], ['zoom'], 8, 1.6, 12, 1.4, 16, 1.1, 20, 0.9]
-  }
-  return ['interpolate', ['linear'], ['zoom'], 12, 1.2, 14, 1.0, 16, 0.8, 20, 0.6]
+const getLineWidthStops = (key) => {
+  if (key === 'county') return [[5, 2.2], [9, 2.0], [12, 1.8], [16, 1.6], [20, 1.4]]
+  if (key === 'township') return [[8, 1.6], [12, 1.4], [16, 1.1], [20, 0.9]]
+  return [[12, 1.2], [14, 1.0], [16, 0.8], [20, 0.6]]
+}
+
+const getLineWidthExpression = (key, scale = 1) => {
+  const safeScale = Number.isFinite(Number(scale)) ? Number(scale) : 1
+  const values = getLineWidthStops(key).flatMap(([zoom, width]) => [zoom, Number((width * safeScale).toFixed(3))])
+  return ['interpolate', ['linear'], ['zoom'], ...values]
 }
 
 export const getBoundaryLayerIds = (layerState) =>
   [
+    layerState.stat_zone_min_113?.layerId,
     layerState.village?.layerId,
     layerState.township?.layerId,
     layerState.county?.layerId
@@ -22,6 +25,8 @@ export const useMapLayers = (mapRef, layerStateRef) => {
 
     const entry = layerStateRef.value[key]
     if (!entry || !map.getLayer(entry.layerId)) return
+    map.setPaintProperty(entry.layerId, 'line-color', entry.color)
+    map.setPaintProperty(entry.layerId, 'line-width', getLineWidthExpression(key, entry.lineWidthScale))
     map.setLayoutProperty(entry.layerId, 'visibility', entry.active ? 'visible' : 'none')
   }
 
@@ -53,7 +58,7 @@ export const useMapLayers = (mapRef, layerStateRef) => {
       },
       paint: {
         'line-color': entry.color,
-        'line-width': getLineWidthExpression(key),
+        'line-width': getLineWidthExpression(key, entry.lineWidthScale),
         'line-opacity': 0.9
       }
     })

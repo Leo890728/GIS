@@ -12,10 +12,14 @@ const props = defineProps({
   selectedRangeIds: {
     type: Array,
     required: true
+  },
+  rangeNodeLoading: {
+    type: Object,
+    default: () => ({})
   }
 })
 
-const emit = defineEmits(['toggle-range'])
+const emit = defineEmits(['toggle-range', 'expand-range'])
 
 const totalRangeLeafCount = computed(() => getAllLeafRangeIds(props.rangeTree).length)
 const selectedRangeLeafCount = computed(() => props.selectedRangeIds.length)
@@ -46,7 +50,9 @@ const selectedRangeLeafCount = computed(() => props.selectedRangeIds.length)
           :key="range.id"
           :node="range"
           :selected-range-ids="selectedRangeIds"
+          :range-node-loading="rangeNodeLoading"
           @toggle-range="emit('toggle-range', $event)"
+          @expand-range="emit('expand-range', $event)"
         />
       </div>
     </article>

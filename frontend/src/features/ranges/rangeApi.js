@@ -6,6 +6,14 @@ export const fetchRangeTree = async (apiBaseUrl) => {
   return response.json()
 }
 
+export const fetchVillageStatZoneRanges = async (apiBaseUrl, villageCode) => {
+  const response = await fetch(`${apiBaseUrl}/ranges/village/${encodeURIComponent(villageCode)}/stat-zones`)
+  if (!response.ok) {
+    throw new Error(`Failed to load village stat zones: ${response.status}`)
+  }
+  return response.json()
+}
+
 export const fetchRangeGeoJson = async (apiBaseUrl, payload) => {
   const response = await fetch(`${apiBaseUrl}/regions/range-geojson`, {
     method: 'POST',

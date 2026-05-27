@@ -55,6 +55,7 @@ export const buildRangeRequest = (rangeTree, selectedRangeIds) => {
   const countyCodes = []
   const townCodes = []
   const villageCodes = []
+  const statZoneCodes = []
 
   const collect = (node) => {
     if (!node?.id) return
@@ -73,6 +74,10 @@ export const buildRangeRequest = (rangeTree, selectedRangeIds) => {
         villageCodes.push(node.code)
         return
       }
+      if (node.level === 'stat_zone_min_113') {
+        statZoneCodes.push(node.code)
+        return
+      }
     }
 
     for (const child of children) {
@@ -87,6 +92,7 @@ export const buildRangeRequest = (rangeTree, selectedRangeIds) => {
   return {
     countyCodes: countyCodes.filter(Boolean),
     townCodes: townCodes.filter(Boolean),
-    villageCodes: villageCodes.filter(Boolean)
+    villageCodes: villageCodes.filter(Boolean),
+    statZoneCodes: statZoneCodes.filter(Boolean)
   }
 }
