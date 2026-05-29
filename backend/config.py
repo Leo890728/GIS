@@ -26,6 +26,7 @@ RANGE_STYLES = {
 }
 
 REGIONS_DB_PATH = BACKEND_DIR / "data" / "regions.sqlite"
+CACHE_DB_PATH = BACKEND_DIR / "data" / "cache.sqlite"
 SPATIALITE_EXTENSION_PATH = os.getenv(
     "SPATIALITE_EXTENSION_PATH",
     str(ROOT / "tools" / "spatialite" / "mod_spatialite.dll"),
@@ -81,6 +82,23 @@ DATA_SOURCES = {
             "id_parts": ["CODEBASE"],
             "lng": "X",
             "lat": "Y",
+        },
+    },
+    "moenv_incinerators": {
+        "adapter": "moenv_incinerator_geocode",
+        "url": (
+            "https://data.moenv.gov.tw/api/v2/fac_s_01"
+            "?api_key=af57253c-e838-46da-a1f5-12b43afd75f3"
+            "&limit=1000&sort=ImportDate%20desc&format=JSON"
+        ),
+        "refresh_seconds": 86400,
+        "geocode_address_field": "budadd",
+        "geocode_retry_days": 7,
+        "cache_db_path": str(CACHE_DB_PATH),
+        "fields": {
+            "id_parts": ["wepno"],
+            "lng": "_lng",
+            "lat": "_lat",
         },
     },
 }

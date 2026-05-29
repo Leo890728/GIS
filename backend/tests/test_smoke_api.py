@@ -28,6 +28,18 @@ def fake_dataset_fetcher(request_data_or_url):
                     "OverSpeed": 1,
                 }
             ]
+        if "moenv" in request_data_or_url.get("url", "").lower():
+            return {
+                "records": [
+                    {
+                        "wepno": "WEPJ2722",
+                        "icnrtname": "新竹縣高效能再生能源中心",
+                        "budadd": "",
+                        "_lng": "120.999",
+                        "_lat": "24.888",
+                    }
+                ]
+            }
         return []
 
     return [
@@ -103,6 +115,19 @@ class SmokeApiTestCase(unittest.TestCase):
                         "id_parts": ["CODEBASE"],
                         "lng": "X",
                         "lat": "Y",
+                    },
+                },
+                "moenv_incinerators": {
+                    "adapter": "moenv_incinerator_geocode",
+                    "url": "mock://moenv",
+                    "refresh_seconds": 600,
+                    "rows_path": ["records"],
+                    "geocode_address_field": "budadd",
+                    "geocode_retry_days": 7,
+                    "fields": {
+                        "id_parts": ["wepno"],
+                        "lng": "_lng",
+                        "lat": "_lat",
                     },
                 },
             },
@@ -285,6 +310,22 @@ class SmokeApiTestCase(unittest.TestCase):
         first = payload["features"][0]
         self.assertEqual("Point", first["geometry"]["type"])
         self.assertIn("P_CNT", first["properties"])
+
+    def test_data_query_moenv_incinerators_returns_points(self):
+        response = self.client.post(
+            "/data/query",
+            json={
+                "dataId": "moenv_incinerators",
+                "limit": 5,
+            },
+        )
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual("FeatureCollection", payload.get("type"))
+        self.assertGreaterEqual(len(payload.get("features", [])), 1)
+        first = payload["features"][0]
+        self.assertEqual("Point", first["geometry"]["type"])
+        self.assertIn("icnrtname", first["properties"])
 
 
 if __name__ == "__main__":

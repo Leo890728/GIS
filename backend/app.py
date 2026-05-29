@@ -8,6 +8,7 @@ if __package__ in (None, ""):  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from backend.config import (
+    CACHE_DB_PATH,
     DATASETS,
     DATA_SOURCES,
     GEOJSON_DIR,
@@ -19,6 +20,7 @@ from backend.config import (
     SPATIALITE_EXTENSION_PATH,
 )
 from backend.routes import ALL_BLUEPRINTS
+from backend.services.cache_db import CacheDb
 from backend.services.dataset_service import DatasetService
 from backend.services.regions_service import RegionsService
 
@@ -44,7 +46,9 @@ def create_app(config_overrides=None):
         )
 
     if "DATASET_SERVICE" not in app.config:
-        app.config["DATASET_SERVICE"] = DatasetService(DATA_SOURCES)
+        app.config["DATASET_SERVICE"] = DatasetService(
+            DATA_SOURCES, cache_db=CacheDb(CACHE_DB_PATH)
+        )
 
     for blueprint in ALL_BLUEPRINTS:
         app.register_blueprint(blueprint)

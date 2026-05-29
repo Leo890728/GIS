@@ -26,13 +26,16 @@ def to_float(value):
 
 
 class DatasetService:
-    def __init__(self, sources, fetcher=None, now_func=None, adapters=None):
+    def __init__(self, sources, fetcher=None, now_func=None, adapters=None, cache_db=None):
         self.sources = sources or {}
         self.fetcher = fetcher or self._default_fetcher
         self.now_func = now_func or utc_now
         self.adapters = adapters or ADAPTER_REGISTRY
+        self.cache_db = cache_db
         self._http_client = None
         self._cache = {}
+        if cache_db:
+            self._preload_from_db()
 
     def list_datasets(self):
         return sorted(self.sources.keys())
@@ -40,7 +43,7 @@ class DatasetService:
     def get_meta(self, data_id):
         source = self._get_source(data_id)
         entry = self._cache.get(data_id, {})
-        features = entry.get("features", [])
+        features = entry.get("features", []) if self._entry_has_valid_features(entry) else []
         return {
             "dataId": data_id,
             "sourceUrl": source["url"],
@@ -53,12 +56,13 @@ class DatasetService:
 
     def refresh(self, data_id, force=False):
         source = self._get_source(data_id)
-        entry = self._cache.setdefault(data_id, {"features": []})
+        entry = self._cache.setdefault(data_id, {})
         interval = int(source.get("refresh_seconds", 600))
         now = self.now_func()
         expires_at = entry.get("expires_at")
+        has_valid_cached_features = self._entry_has_valid_features(entry)
 
-        if not force and expires_at and expires_at > now and entry.get("features"):
+        if not force and expires_at and expires_at > now and has_valid_cached_features:
             return entry["features"]
 
         try:
@@ -69,9 +73,20 @@ class DatasetService:
             entry["features"] = features
             entry["last_error"] = None
             entry["last_success_at"] = now
+            if self.cache_db:
+                self.cache_db.save_dataset(
+                    data_id, features, now, now, now + timedelta(seconds=interval)
+                )
         except Exception as err:  # pragma: no cover
             entry["last_error"] = str(err)
-            if not entry.get("features"):
+            if not self._entry_has_valid_features(entry):
+                # in-memory cache is absent/invalid; try SQLite as last resort
+                if self.cache_db:
+                    stored = self.cache_db.load_dataset(data_id)
+                    if stored is not None and self._entry_has_valid_features(stored):
+                        entry.update(stored)
+            if not self._entry_has_valid_features(entry):
+                entry.pop("features", None)
                 raise RuntimeError(f"Failed to load dataset {data_id}: {err}") from err
         finally:
             entry["last_updated_at"] = now
@@ -168,6 +183,36 @@ class DatasetService:
             if feature:
                 features.append(feature)
         return features
+
+    def _preload_from_db(self):
+        for data_id in self.sources:
+            stored = self.cache_db.load_dataset(data_id)
+            if stored and self._entry_has_valid_features(stored):
+                self._cache[data_id] = stored
+
+    def _entry_has_valid_features(self, entry):
+        features = entry.get("features") if isinstance(entry, dict) else None
+        if not isinstance(features, list):
+            return False
+        return all(self._is_valid_feature(feature) for feature in features)
+
+    @staticmethod
+    def _is_valid_feature(feature):
+        if not isinstance(feature, dict):
+            return False
+
+        geometry = feature.get("geometry")
+        properties = feature.get("properties")
+        if not isinstance(geometry, dict) or not isinstance(properties, dict):
+            return False
+
+        coordinates = geometry.get("coordinates")
+        if not isinstance(coordinates, (list, tuple)) or len(coordinates) < 2:
+            return False
+
+        lng = to_float(coordinates[0])
+        lat = to_float(coordinates[1])
+        return lng is not None and lat is not None
 
     def _row_to_feature(self, row, fields, index):
         lng = to_float(row.get(fields.get("lng", "X")))

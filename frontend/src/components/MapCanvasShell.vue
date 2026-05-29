@@ -103,9 +103,9 @@ const enforceLayerOrder = () => {
   if (!m) return
 
   const orderedIds = [
+    ...getBoundaryLayerIds(props.layerState),
     ...rangeLayerIds,
-    ...getDataLayerIds(props.dataLayerState),
-    ...getBoundaryLayerIds(props.layerState)
+    ...getDataLayerIds(props.dataLayerState)
   ]
 
   for (const id of orderedIds) {
@@ -224,10 +224,10 @@ const createMap = () => {
 
   map.value.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-  map.value.on('load', () => {
+  map.value.on('load', async () => {
     applyBasemap(props.activeBasemap)
     addRangeLayers()
-    addDataLayers()
+    await addDataLayers()
     addBoundaryLayers()
     enforceLayerOrder()
     updateAllLayerVisibility()
@@ -283,6 +283,7 @@ watch(
   () => props.dataLayerState,
   () => {
     updateAllDataLayerVisibility()
+    enforceLayerOrder()
     hideDataHoverPopup()
   },
   { deep: true }
@@ -452,6 +453,8 @@ onBeforeUnmount(() => {
   font-size: 11px;
   padding: 8px 10px;
   min-width: 180px;
+  max-width: min(360px, calc(100vw - 48px));
+  overflow: hidden;
 }
 
 :deep(.data-hover-popup .maplibregl-popup-tip) {
@@ -470,18 +473,25 @@ onBeforeUnmount(() => {
 }
 
 :deep(.data-hover-popup .hover-row) {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(72px, 42%) minmax(0, 1fr);
+  align-items: start;
+  column-gap: 10px;
+  row-gap: 2px;
 }
 
 :deep(.data-hover-popup .hover-label) {
   color: #9fb7da;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 :deep(.data-hover-popup .hover-value) {
   color: #eaf1ff;
   text-align: right;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 </style>

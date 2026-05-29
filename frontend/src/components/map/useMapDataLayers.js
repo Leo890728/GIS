@@ -36,6 +36,12 @@ export const getDataLayerEntryByPointLayerId = (dataLayerState, pointLayerId) =>
   Object.values(dataLayerState || {}).find((entry) => !isVectorEntry(entry) && `${entry.layerId}-points` === pointLayerId)
 
 const ensureLayerIcon = async (map, entry) => {
+  if (entry?.style?.forceCircle === true) return null
+
+  const hasIconDefs = Array.isArray(entry?.icons) && entry.icons.length > 0
+  const explicitIconId = typeof entry?.style?.iconId === 'string' && entry.style.iconId.trim() !== ''
+  if (!hasIconDefs && !explicitIconId) return null
+
   await ensureIcons(map, entry.icons)
   const iconId = entry.style?.iconId || `${entry.layerId}-icon`
   return map.hasImage(iconId) ? iconId : null
@@ -52,6 +58,47 @@ const getVectorHeatmapColor = (entry) => [
   2000, '#4ea65d',
   5000, '#2f7e49'
 ]
+
+const getPointSizeExpr = (entry) => ['coalesce', ['get', '__style_pointSize'], entry.style?.pointSize || 6]
+
+const getIconSizeExpr = (entry) => {
+  if (entry?.style?.iconSize != null) {
+    return entry.style.iconSize
+  }
+  const pointSizeExpr = getPointSizeExpr(entry)
+  if (entry?.style?.scalePointWithZoom === false) {
+    return ['/', pointSizeExpr, 10]
+  }
+  return [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    6,
+    0.35,
+    12,
+    ['/', pointSizeExpr, 10],
+    16,
+    ['/', ['+', pointSizeExpr, 2], 10]
+  ]
+}
+
+const getCircleRadiusExpr = (entry) => {
+  const pointSizeExpr = getPointSizeExpr(entry)
+  if (entry?.style?.scalePointWithZoom === false) {
+    return pointSizeExpr
+  }
+  return [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    6,
+    ['max', 2, ['*', pointSizeExpr, 0.7]],
+    12,
+    pointSizeExpr,
+    16,
+    ['+', pointSizeExpr, 4]
+  ]
+}
 
 export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef) => {
   const getLayerVisibility = (entry, mode) => (entry.active && entry.style?.mode === mode ? 'visible' : 'none')
@@ -164,26 +211,8 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
           source: entry.sourceId,
           layout: {
             visibility: getLayerVisibility(entry, 'points'),
-            'icon-image': ['coalesce', ['image', ['get', '__style_iconId']], ['image', iconId]],
-            'icon-size': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              6,
-              0.35,
-              12,
-              [
-                '/',
-                ['coalesce', ['to-number', ['get', '__style_pointSize']], entry.style.pointSize || 6],
-                10
-              ],
-              16,
-              [
-                '/',
-                ['+', ['coalesce', ['to-number', ['get', '__style_pointSize']], entry.style.pointSize || 6], 2],
-                10
-              ]
-            ],
+            'icon-image': ['case', ['has', '__style_iconId'], ['image', ['get', '__style_iconId']], ['image', iconId]],
+            'icon-size': getIconSizeExpr(entry),
             'icon-allow-overlap': true
           },
           paint: {
@@ -200,21 +229,7 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
           },
           paint: {
             'circle-color': ['coalesce', ['get', '__style_pointColor'], entry.style.color || '#f2c94c'],
-            'circle-radius': [
-              'interpolate',
-              ['linear'],
-              ['zoom'],
-              6,
-              3,
-              12,
-              ['coalesce', ['to-number', ['get', '__style_pointSize']], entry.style.pointSize || 6],
-              16,
-              [
-                '+',
-                ['coalesce', ['to-number', ['get', '__style_pointSize']], entry.style.pointSize || 6],
-                4
-              ]
-            ],
+            'circle-radius': getCircleRadiusExpr(entry),
             'circle-opacity': 0.82,
             'circle-stroke-color': '#0b1220',
             'circle-stroke-width': 1.2
@@ -224,13 +239,14 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
     }
   }
 
-  const addDataLayers = () => {
-    Object.keys(dataLayerStateRef.value).forEach((key) => {
-      addDataLayer(key).catch((error) => {
-        console.error(`[data-layer] failed to add ${key}`, error)
-      })
-    })
-  }
+  const addDataLayers = () =>
+    Promise.all(
+      Object.keys(dataLayerStateRef.value).map((key) =>
+        addDataLayer(key).catch((error) => {
+          console.error(`[data-layer] failed to add ${key}`, error)
+        })
+      )
+    )
 
   const updateDataLayerVisibility = (key) => {
     const map = mapRef.value
@@ -261,8 +277,39 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
     }
   }
 
+  const updateDataLayerStyle = async (key) => {
+    const map = mapRef.value
+    if (!map) return
+
+    const entry = dataLayerStateRef.value[key]
+    if (!entry || isVectorEntry(entry)) return
+
+    const pointsLayerId = `${entry.layerId}-points`
+    const layer = map.getLayer(pointsLayerId)
+    if (!layer) return
+
+    if (layer.type === 'symbol') {
+      const iconId = await ensureLayerIcon(map, entry)
+      if (iconId) {
+        map.setLayoutProperty(pointsLayerId, 'icon-image', ['case', ['has', '__style_iconId'], ['image', ['get', '__style_iconId']], ['image', iconId]])
+      }
+      map.setLayoutProperty(pointsLayerId, 'icon-size', getIconSizeExpr(entry))
+      return
+    }
+
+    if (layer.type === 'circle') {
+      map.setPaintProperty(pointsLayerId, 'circle-color', ['coalesce', ['get', '__style_pointColor'], entry.style.color || '#f2c94c'])
+      map.setPaintProperty(pointsLayerId, 'circle-radius', getCircleRadiusExpr(entry))
+    }
+  }
+
   const updateAllDataLayerVisibility = () => {
-    Object.keys(dataLayerStateRef.value).forEach(updateDataLayerVisibility)
+    Object.keys(dataLayerStateRef.value).forEach((key) => {
+      updateDataLayerVisibility(key)
+      updateDataLayerStyle(key).catch((error) => {
+        console.error(`[data-layer] failed to update style ${key}`, error)
+      })
+    })
   }
 
   const updateDataLayerGeoJson = () => {

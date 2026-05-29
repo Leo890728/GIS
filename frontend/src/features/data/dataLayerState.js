@@ -258,6 +258,62 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       weightProperty: 'status'
     }
   },
+  moenvIncinerators: {
+    label: '焚化廠基本資料',
+    detail: 'moenv_incinerators',
+    dataId: 'moenv_incinerators',
+    sourceId: 'data-moenv-incinerators-source',
+    layerId: 'data-moenv-incinerators',
+    active: false,
+    query: {
+      filters: {},
+      limit: 1000
+    },
+    aggregate: {
+      metrics: ['count'],
+      summary: {
+        sumField: 'dsnprcqt',
+        sumLabel: '設計處理量合計 (公噸/日)',
+        avgField: 'dsnprcqt',
+        avgLabel: '平均設計處理量 (公噸/日)',
+        sumDigits: 0
+      }
+    },
+    dynamic: {
+      enabled: false
+    },
+    supportedModes: ['points'],
+    icons: [
+      { id: 'incinerator', src: '/icons/incinerator.png' }
+    ],
+    tooltip: {
+      enabled: true,
+      titleField: 'icnrtname',
+      items: [
+        { label: '焚化廠名稱', field: 'icnrtname' },
+        { label: '地址', field: 'budadd' },
+        { label: '主管環保局', field: 'locaepb' },
+        { label: '操作單位', field: 'oprtdept' },
+        { label: '營運型態', field: 'weptype' },
+        { label: '爐數', field: 'icnrtnum', format: 'number', digits: 0 },
+        { label: '設計處理量 (公噸/日)', field: 'dsnprcqt', format: 'number', digits: 0 },
+        { label: '發電機組裝置容量 (百萬瓦)', field: 'dsneleqt', format: 'number', digits: 2 },
+        { label: '設計熱值 (kcal/kg)', field: 'dsnhv', format: 'number', digits: 0 },
+        { label: '開始營運年月', field: 'opendate' },
+        { label: '開始操作日期', field: 'oprtdate' },
+        { label: '興建主辦機關', field: 'budmajororg' },
+        { label: '營運監督機構', field: 'opradmunit' },
+        { label: '焚化廠網址', field: 'epcwebaddr' },
+        { label: '系統代碼', field: 'wepno' }
+      ]
+    },
+    style: {
+      mode: 'points',
+      color: '#f97316',
+      iconId: 'incinerator',
+      iconSize: 1
+    }
+  },
   statZonePopulation: {
     label: 'Stat Zone Population',
     detail: 'stat_zone_min_113 (P_CNT)',
