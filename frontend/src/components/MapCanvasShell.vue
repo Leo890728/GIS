@@ -5,9 +5,12 @@ import { getDataLayerEntryByPointLayerId, getDataLayerIds, getDataPointLayerIds,
 import { formatTooltipItemValue } from '../features/data/formatters'
 import { getBoundaryLayerIds, useMapLayers } from './map/useMapLayers'
 import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
+import { useMapRouteLayers } from './map/useMapRouteLayers'
 
 const basemapSourceId = 'basemap-source'
 const basemapLayerId = 'basemap-layer'
+const routeStopLayerId = 'route-stop-layer'
+const routeStopOrderLayerId = 'route-stop-order-layer'
 
 const props = defineProps({
   activeBasemap: {
@@ -29,10 +32,35 @@ const props = defineProps({
   dataLayerGeoJson: {
     type: Object,
     required: true
+  },
+  routeLineGeoJson: {
+    type: Object,
+    required: true
+  },
+  routeStopGeoJson: {
+    type: Object,
+    required: true
+  },
+  routeAnchorGeoJson: {
+    type: Object,
+    required: true
+  },
+  routeLayerVisibility: {
+    type: Object,
+    default: () => ({
+      line: true,
+      stops: true,
+      anchors: true,
+      vehicles: {}
+    })
+  },
+  routePickMode: {
+    type: String,
+    default: ''
   }
 })
 
-const emit = defineEmits(['toggle-layer', 'toggle-data-layer'])
+const emit = defineEmits(['toggle-layer', 'toggle-data-layer', 'toggle-route-layer', 'route-map-click'])
 
 const mapEl = ref(null)
 const map = ref(null)
@@ -42,15 +70,64 @@ const layerStateRef = toRef(props, 'layerState')
 const selectedRangeGeoJsonRef = toRef(props, 'selectedRangeGeoJson')
 const dataLayerStateRef = toRef(props, 'dataLayerState')
 const dataLayerGeoJsonRef = toRef(props, 'dataLayerGeoJson')
+const routeLineGeoJsonRef = toRef(props, 'routeLineGeoJson')
+const routeStopGeoJsonRef = toRef(props, 'routeStopGeoJson')
+const routeAnchorGeoJsonRef = toRef(props, 'routeAnchorGeoJson')
+const routeLayerVisibilityRef = toRef(props, 'routeLayerVisibility')
 
 const orderedLayerEntries = computed(() => Object.entries(props.layerState))
 const orderedDataLayerEntries = computed(() => Object.entries(props.dataLayerState))
+const routeLegendItems = computed(() => [
+  {
+    key: 'line',
+    label: 'Route Line',
+    color: '#ffd166',
+    active: props.routeLayerVisibility?.line !== false
+  },
+  {
+    key: 'stops',
+    label: 'Route Stops',
+    color: '#34d399',
+    active: props.routeLayerVisibility?.stops !== false
+  },
+  {
+    key: 'anchors',
+    label: 'Depot Anchors',
+    color: '#22d3ee',
+    active: props.routeLayerVisibility?.anchors !== false
+  }
+])
+const routeVehicleLegendItems = computed(() => {
+  const features = Array.isArray(props.routeLineGeoJson?.features) ? props.routeLineGeoJson.features : []
+  const vehiclesVisibility = props.routeLayerVisibility?.vehicles || {}
+  return features
+    .map((feature) => {
+      const properties = feature?.properties || {}
+      const vehicleId = properties.vehicleId
+      if (!vehicleId) return null
+      const vehicleColor = properties.vehicleColor || '#ffd166'
+      return {
+        key: `vehicle:${vehicleId}`,
+        label: vehicleId,
+        color: vehicleColor,
+        active: vehiclesVisibility[vehicleId] !== false
+      }
+    })
+    .filter((item, index, array) => item && array.findIndex((target) => target.key === item.key) === index)
+})
 const { addBoundaryLayers, updateAllLayerVisibility } = useMapLayers(map, layerStateRef)
 const { addRangeLayers, updateRangeGeoJson } = useMapRanges(map, selectedRangeGeoJsonRef)
 const { addDataLayers, updateAllDataLayerVisibility, updateDataLayerGeoJson } = useMapDataLayers(
   map,
   dataLayerStateRef,
   dataLayerGeoJsonRef
+)
+const { addRouteLayers, updateRouteGeoJson, updateRouteVisibility } = useMapRouteLayers(
+  map,
+  routeLineGeoJsonRef,
+  routeStopGeoJsonRef,
+  routeAnchorGeoJsonRef,
+  routeLayerVisibilityRef
 )
 
 const refreshLoading = () => {
@@ -103,9 +180,13 @@ const enforceLayerOrder = () => {
   if (!m) return
 
   const orderedIds = [
-    ...getBoundaryLayerIds(props.layerState),
     ...rangeLayerIds,
-    ...getDataLayerIds(props.dataLayerState)
+    ...getBoundaryLayerIds(props.layerState),
+    ...getDataLayerIds(props.dataLayerState),
+    'route-line-layer',
+    'route-stop-layer',
+    'route-stop-order-layer',
+    'route-anchor-layer'
   ]
 
   for (const id of orderedIds) {
@@ -129,7 +210,7 @@ const hideDataHoverPopup = () => {
     dataHoverPopup.value = null
   }
   if (map.value) {
-    map.value.getCanvas().style.cursor = ''
+    map.value.getCanvas().style.cursor = ['start', 'end'].includes(props.routePickMode) ? 'crosshair' : ''
   }
 }
 
@@ -151,9 +232,62 @@ const buildDataTooltipHtml = (entry, properties) => {
   return `<div class="hover-card">${titleHtml}${rows.join('')}</div>`
 }
 
+const buildRouteTooltipHtml = (properties) => {
+  if (!properties || typeof properties !== 'object') return ''
+  const rows = []
+  const appendRow = (label, value) => {
+    if (value == null || value === '') return
+    rows.push(
+      `<div class="hover-row"><span class="hover-label">${escapeHtml(label)}</span><span class="hover-value">${escapeHtml(value)}</span></div>`
+    )
+  }
+
+  appendRow('Vehicle', properties.vehicleId)
+  appendRow('Stop', properties.stopIndex != null && Number(properties.stopIndex) >= 0 ? Number(properties.stopIndex) + 1 : '-')
+  appendRow('Type', properties.type)
+  appendRow('Name', properties.name)
+  appendRow('Load (kg)', properties.loadKg)
+  appendRow('Member Count', properties.memberCount)
+
+  const legDistance = properties.legFromPrevDistanceM
+  const legDuration = properties.legFromPrevDurationS
+  appendRow('From Prev (m)', legDistance)
+  appendRow('From Prev (s)', legDuration)
+
+  if (!rows.length) return ''
+  const titleValue = properties.name || properties.type || 'Route Stop'
+  return `<div class="hover-card"><div class="hover-title">${escapeHtml(titleValue)}</div>${rows.join('')}</div>`
+}
+
 const handleDataHover = (event) => {
   const m = map.value
   if (!m) return
+  if (['start', 'end'].includes(props.routePickMode)) {
+    hideDataHoverPopup()
+    return
+  }
+
+  if (m.getLayer(routeStopLayerId)) {
+    const routeFeatures = m.queryRenderedFeatures(event.point, { layers: [routeStopOrderLayerId, routeStopLayerId] })
+    if (routeFeatures.length) {
+      const routeFeature = routeFeatures[0]
+      const html = buildRouteTooltipHtml(routeFeature.properties || {})
+      if (html) {
+        const coordinates = routeFeature?.geometry?.coordinates || [event.lngLat.lng, event.lngLat.lat]
+        if (!dataHoverPopup.value) {
+          dataHoverPopup.value = new maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            offset: 12,
+            className: 'data-hover-popup'
+          })
+        }
+        dataHoverPopup.value.setLngLat(coordinates).setHTML(html).addTo(m)
+        m.getCanvas().style.cursor = 'pointer'
+        return
+      }
+    }
+  }
 
   const pointLayerIds = getDataPointLayerIds(props.dataLayerState).filter((layerId) => m.getLayer(layerId))
   if (!pointLayerIds.length) {
@@ -200,6 +334,7 @@ const createMap = () => {
     container: mapEl.value,
     style: {
       version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       sources: {
         [basemapSourceId]: {
           type: 'raster',
@@ -228,14 +363,23 @@ const createMap = () => {
     applyBasemap(props.activeBasemap)
     addRangeLayers()
     await addDataLayers()
+    addRouteLayers()
     addBoundaryLayers()
     enforceLayerOrder()
     updateAllLayerVisibility()
     updateAllDataLayerVisibility()
+    updateRouteVisibility()
     refreshLoading()
   })
 
   map.value.on('mousemove', handleDataHover)
+  map.value.on('click', (event) => {
+    if (!['start', 'end'].includes(props.routePickMode)) return
+    emit('route-map-click', {
+      mode: props.routePickMode,
+      coordinate: [Number(event.lngLat.lng.toFixed(6)), Number(event.lngLat.lat.toFixed(6))]
+    })
+  })
   map.value.on('mouseout', hideDataHoverPopup)
   map.value.on('dragstart', hideDataHoverPopup)
   map.value.on('zoomstart', hideDataHoverPopup)
@@ -297,6 +441,46 @@ watch(
   { deep: true }
 )
 
+watch(
+  () => props.routeLineGeoJson,
+  () => {
+    updateRouteGeoJson()
+  },
+  { deep: true }
+)
+
+watch(
+  () => props.routeStopGeoJson,
+  () => {
+    updateRouteGeoJson()
+  },
+  { deep: true }
+)
+
+watch(
+  () => props.routeAnchorGeoJson,
+  () => {
+    updateRouteGeoJson()
+  },
+  { deep: true }
+)
+
+watch(
+  () => props.routeLayerVisibility,
+  () => {
+    updateRouteVisibility()
+  },
+  { deep: true }
+)
+
+watch(
+  () => props.routePickMode,
+  () => {
+    if (!map.value) return
+    map.value.getCanvas().style.cursor = ['start', 'end'].includes(props.routePickMode) ? 'crosshair' : ''
+  }
+)
+
 onMounted(() => {
   createMap()
 })
@@ -340,6 +524,36 @@ onBeforeUnmount(() => {
           <span class="legend-chip round" :style="{ backgroundColor: row.style?.color || '#f2c94c' }"></span>
           <span>{{ row.label }}</span>
         </button>
+      </template>
+
+      <template v-if="routeLegendItems.length">
+        <p class="legend-title data-title">Route</p>
+        <button
+          v-for="item in routeLegendItems"
+          :key="item.key"
+          class="legend-row"
+          :class="{ inactive: !item.active }"
+          type="button"
+          @click="emit('toggle-route-layer', item.key)"
+        >
+          <span class="legend-chip round" :style="{ backgroundColor: item.color }"></span>
+          <span>{{ item.label }}</span>
+        </button>
+
+        <template v-if="routeVehicleLegendItems.length">
+          <p class="legend-title vehicle-title">Vehicles</p>
+          <button
+            v-for="item in routeVehicleLegendItems"
+            :key="item.key"
+            class="legend-row"
+            :class="{ inactive: !item.active }"
+            type="button"
+            @click="emit('toggle-route-layer', item.key)"
+          >
+            <span class="legend-chip round" :style="{ backgroundColor: item.color }"></span>
+            <span>{{ item.label }}</span>
+          </button>
+        </template>
       </template>
     </div>
 
@@ -386,6 +600,12 @@ onBeforeUnmount(() => {
 
 .legend-title.data-title {
   margin-top: 6px;
+}
+
+.legend-title.vehicle-title {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #a6c4ea;
 }
 
 .legend-row {

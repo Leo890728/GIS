@@ -76,7 +76,7 @@ DATA_SOURCES = {
     "stat_zone_population_points": {
         "adapter": "regions_sqlite_stat_zone_points",
         "db_path": str(REGIONS_DB_PATH),
-        "refresh_seconds": 3600,
+        "refresh_seconds": 86400,
         "limit": 200000,
         "fields": {
             "id_parts": ["CODEBASE"],

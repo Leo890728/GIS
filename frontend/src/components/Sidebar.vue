@@ -4,6 +4,7 @@ import {
   Circle,
   Database,
   Hand,
+  Navigation,
   MousePointer2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -15,6 +16,7 @@ import DataPanel from '../features/data/DataPanel.vue'
 import BasemapPanel from '../features/basemaps/BasemapPanel.vue'
 import LayerPanel from '../features/layers/LayerPanel.vue'
 import RangePanel from '../features/ranges/RangePanel.vue'
+import RoutePanel from '../features/route/RoutePanel.vue'
 
 const props = defineProps({
   layerState: {
@@ -40,6 +42,30 @@ const props = defineProps({
   dataLayerRuntime: {
     type: Object,
     required: true
+  },
+  routeForm: {
+    type: Object,
+    required: true
+  },
+  routeRuntime: {
+    type: Object,
+    required: true
+  },
+  routeSummary: {
+    type: Object,
+    required: true
+  },
+  routeRows: {
+    type: Array,
+    required: true
+  },
+  routeDroppedRows: {
+    type: Array,
+    required: true
+  },
+  routePickMode: {
+    type: String,
+    default: ''
   },
   rangePointFilterEnabled: {
     type: Boolean,
@@ -69,7 +95,11 @@ const emit = defineEmits([
   'set-data-layer-mode',
   'refresh-data-layer',
   'set-range-point-filter-enabled',
-  'toggle-collapse'
+  'toggle-collapse',
+  'update-route-field',
+  'set-route-pick-mode',
+  'solve-route',
+  'clear-route'
 ])
 
 const activeMode = ref('ranges')
@@ -78,6 +108,7 @@ const modeLabels = {
   basemap: 'Basemap',
   layers: 'Boundary',
   ranges: 'Ranges',
+  route: 'Route',
   data: 'Data'
 }
 
@@ -163,6 +194,16 @@ const drawingTools = [
           <Database :size="14" />
           <span>Data</span>
         </button>
+        <button
+          class="compact-mode-btn"
+          :class="{ active: activeMode === 'route' }"
+          type="button"
+          :aria-pressed="activeMode === 'route'"
+          @click="openMode('route')"
+        >
+          <Navigation :size="14" />
+          <span>Route</span>
+        </button>
       </div>
     </div>
 
@@ -197,6 +238,15 @@ const drawingTools = [
         </button>
         <button
           class="mode-btn"
+          :class="{ active: activeMode === 'route' }"
+          type="button"
+          :aria-pressed="activeMode === 'route'"
+          @click="activeMode = 'route'"
+        >
+          Route
+        </button>
+        <button
+          class="mode-btn"
           :class="{ active: activeMode === 'data' }"
           type="button"
           :aria-pressed="activeMode === 'data'"
@@ -226,6 +276,21 @@ const drawingTools = [
         :range-node-loading="rangeNodeLoading"
         @toggle-range="emit('toggle-range', $event)"
         @expand-range="emit('expand-range', $event)"
+      />
+
+      <RoutePanel
+        v-else-if="activeMode === 'route'"
+        :route-form="routeForm"
+        :route-runtime="routeRuntime"
+        :route-summary="routeSummary"
+        :route-rows="routeRows"
+        :dropped-rows="routeDroppedRows"
+        :pick-mode="routePickMode"
+        :selected-range-count="selectedRangeIds.length"
+        @update-route-field="emit('update-route-field', $event)"
+        @set-pick-mode="emit('set-route-pick-mode', $event)"
+        @solve-route="emit('solve-route')"
+        @clear-route="emit('clear-route')"
       />
 
       <DataPanel

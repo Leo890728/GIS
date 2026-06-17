@@ -1,12 +1,12 @@
 <script setup>
 import { ref } from 'vue'
 import Sidebar from './components/Sidebar.vue'
-import TopToolbar from './components/TopToolbar.vue'
 import MapCanvasShell from './components/MapCanvasShell.vue'
 import { useBasemap } from './features/basemaps/useBasemap'
 import { useDataLayers } from './features/data/useDataLayers'
 import { useLayers } from './features/layers/useLayers'
 import { useRanges } from './features/ranges/useRanges'
+import { useRoutePlanner } from './features/route/useRoutePlanner'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 
@@ -33,6 +33,47 @@ const {
   refreshDataLayerByKey,
   setRangePointFilterEnabled
 } = useDataLayers(API_BASE_URL, selectedRangeGeoJson, selectedRangeRequest)
+const {
+  routeForm,
+  routeRuntime,
+  routeSummary,
+  routeRows,
+  droppedRows,
+  routeLayerVisibility,
+  routeLineGeoJson,
+  routeStopGeoJson,
+  routeAnchorGeoJson,
+  pickMode,
+  setPickMode,
+  setDepotCoord,
+  clearResult,
+  toggleRouteLayerVisibility,
+  toggleRouteVehicleVisibility,
+  solveRoute
+} = useRoutePlanner(API_BASE_URL, selectedRangeRequest, selectedRangeGeoJson)
+
+const updateRouteField = ({ key, value }) => {
+  if (!key) return
+  routeForm.value = {
+    ...routeForm.value,
+    [key]: value
+  }
+}
+
+const handleMapDepotPick = ({ mode, coordinate }) => {
+  setDepotCoord(mode, coordinate)
+}
+
+const handleToggleRouteLayer = (layerKey) => {
+  if (typeof layerKey === 'string' && layerKey.startsWith('vehicle:')) {
+    const vehicleId = layerKey.slice('vehicle:'.length)
+    if (vehicleId) {
+      toggleRouteVehicleVisibility(vehicleId)
+    }
+    return
+  }
+  toggleRouteLayerVisibility(layerKey)
+}
 </script>
 
 <template>
@@ -44,6 +85,12 @@ const {
       :data-layer-state="dataLayerState"
       :data-aggregate="dataAggregate"
       :data-layer-runtime="dataLayerRuntime"
+      :route-form="routeForm"
+      :route-runtime="routeRuntime"
+      :route-summary="routeSummary"
+      :route-rows="routeRows"
+      :route-dropped-rows="droppedRows"
+      :route-pick-mode="pickMode"
       :range-point-filter-enabled="rangePointFilterEnabled"
       :selected-range-ids="selectedRangeIds"
       :range-node-loading="rangeNodeLoading"
@@ -57,19 +104,29 @@ const {
       @set-data-layer-mode="setDataLayerMode"
       @refresh-data-layer="refreshDataLayerByKey"
       @set-range-point-filter-enabled="setRangePointFilterEnabled"
+      @update-route-field="updateRouteField"
+      @set-route-pick-mode="setPickMode"
+      @solve-route="solveRoute"
+      @clear-route="clearResult"
       @toggle-collapse="isSidebarCollapsed = !isSidebarCollapsed"
     />
 
     <main class="workspace">
-      <TopToolbar />
       <MapCanvasShell
         :active-basemap="activeBasemap"
         :layer-state="layerState"
         :selected-range-geo-json="selectedRangeGeoJson"
         :data-layer-state="dataLayerState"
         :data-layer-geo-json="dataLayerGeoJson"
+        :route-line-geo-json="routeLineGeoJson"
+        :route-stop-geo-json="routeStopGeoJson"
+        :route-anchor-geo-json="routeAnchorGeoJson"
+        :route-layer-visibility="routeLayerVisibility"
+        :route-pick-mode="pickMode"
         @toggle-layer="toggleLayer"
         @toggle-data-layer="toggleDataLayer"
+        @toggle-route-layer="handleToggleRouteLayer"
+        @route-map-click="handleMapDepotPick"
       />
     </main>
   </div>
