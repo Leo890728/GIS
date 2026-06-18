@@ -9,35 +9,32 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = Path(__file__).resolve().parent
 PMTILES_BIN = ROOT / "tools" / "pmtiles" / "pmtiles.exe"
 PMTILES_DIR = BACKEND_DIR / "pmtiles"
-GEOJSON_DIR = BACKEND_DIR / "geojson"
+BOUNDS_DB_PATH = BACKEND_DIR / "data" / "bounds.sqlite"
+DATA_DB_PATH   = BACKEND_DIR / "data" / "data.sqlite"
 
 DATASETS = {
-	"county": PMTILES_DIR / "county.pmtiles",
-	"township": PMTILES_DIR / "township.pmtiles",
-	"village": PMTILES_DIR / "village.pmtiles",
-    "stat_zone_min_113": PMTILES_DIR / "stat_zone_min_113.pmtiles",
+    "county":            PMTILES_DIR / "county.pmtiles",
+    "township":          PMTILES_DIR / "township.pmtiles",
+    "village":           PMTILES_DIR / "village.pmtiles",
+    "stat_zone_2":       PMTILES_DIR / "stat_zone_2.pmtiles",
+    "stat_zone_1":       PMTILES_DIR / "stat_zone_1.pmtiles",
+    "stat_zone":         PMTILES_DIR / "stat_zone.pmtiles",
 }
 
 RANGE_STYLES = {
-	"county": "#7fb3ff",
-	"township": "#57a6f5",
-	"village": "#d17827",
-    "stat_zone_min_113": "#72e9b7",
+    "county":      "#7fb3ff",
+    "township":    "#57a6f5",
+    "village":     "#d17827",
+    "stat_zone_2": "#a78bfa",
+    "stat_zone_1": "#34d399",
+    "stat_zone":   "#72e9b7",
 }
 
-REGIONS_DB_PATH = BACKEND_DIR / "data" / "regions.sqlite"
 CACHE_DB_PATH = BACKEND_DIR / "data" / "cache.sqlite"
 SPATIALITE_EXTENSION_PATH = os.getenv(
     "SPATIALITE_EXTENSION_PATH",
     str(ROOT / "tools" / "spatialite" / "mod_spatialite.dll"),
 )
-REGIONS_SYNC_MODE = os.getenv("REGIONS_SYNC_MODE", "manual").strip().lower()
-REGIONS_SYNC_STRICT = os.getenv("REGIONS_SYNC_STRICT", "true").strip().lower() not in {
-    "0",
-    "false",
-    "no",
-    "off",
-}
 
 DATA_SOURCES = {
 	"taichung_garbage_recycling_dynamic": {
@@ -75,7 +72,7 @@ DATA_SOURCES = {
 	},
     "stat_zone_population_points": {
         "adapter": "regions_sqlite_stat_zone_points",
-        "db_path": str(REGIONS_DB_PATH),
+        "db_path": str(BOUNDS_DB_PATH),
         "refresh_seconds": 86400,
         "limit": 200000,
         "fields": {

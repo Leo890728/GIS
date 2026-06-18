@@ -316,7 +316,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
   },
   statZonePopulation: {
     label: 'Stat Zone Population',
-    detail: 'stat_zone_min_113 (P_CNT)',
+    detail: 'stat_zone (P_CNT)',
     dataId: 'stat_zone_population_points',
     sourceId: 'data-stat-zone-population-source',
     layerId: 'data-stat-zone-population',

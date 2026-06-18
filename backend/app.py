@@ -8,15 +8,13 @@ if __package__ in (None, ""):  # pragma: no cover
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from backend.config import (
+    BOUNDS_DB_PATH,
     CACHE_DB_PATH,
+    DATA_DB_PATH,
     DATASETS,
     DATA_SOURCES,
-    GEOJSON_DIR,
     PMTILES_BIN,
     RANGE_STYLES,
-    REGIONS_DB_PATH,
-    REGIONS_SYNC_MODE,
-    REGIONS_SYNC_STRICT,
     SPATIALITE_EXTENSION_PATH,
 )
 from backend.routes import ALL_BLUEPRINTS
@@ -37,12 +35,10 @@ def create_app(config_overrides=None):
 
     if "REGIONS_SERVICE" not in app.config:
         app.config["REGIONS_SERVICE"] = RegionsService(
-            geojson_dir=GEOJSON_DIR,
+            bounds_path=BOUNDS_DB_PATH,
+            data_path=DATA_DB_PATH,
             range_styles=RANGE_STYLES,
-            db_path=REGIONS_DB_PATH,
             spatialite_extension_path=SPATIALITE_EXTENSION_PATH,
-            sync_mode=REGIONS_SYNC_MODE,
-            sync_strict=REGIONS_SYNC_STRICT,
         )
 
     if "DATASET_SERVICE" not in app.config:

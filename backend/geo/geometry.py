@@ -1,4 +1,6 @@
 def point_in_ring(lng, lat, ring):
+    # Ray casting：從點向右射水平線，計算穿越 ring 邊的次數
+    # 奇數次 = 在環內；`or 1e-12` 防止水平邊造成除以零
     if not isinstance(ring, list) or len(ring) < 4:
         return False
 
@@ -21,6 +23,8 @@ def point_in_ring(lng, lat, ring):
 
 
 def point_in_polygon(lng, lat, polygon_coordinates):
+    # GeoJSON Polygon：coordinates[0] 為外環，coordinates[1:] 為洞（holes）
+    # 點必須在外環內且不在任何洞內
     if not isinstance(polygon_coordinates, list) or not polygon_coordinates:
         return False
     if not point_in_ring(lng, lat, polygon_coordinates[0]):
@@ -32,6 +36,7 @@ def point_in_polygon(lng, lat, polygon_coordinates):
 
 
 def point_in_geometry(lng, lat, geometry):
+    # 支援 Polygon 與 MultiPolygon；MultiPolygon 任一子多邊形包含即回傳 True
     if not isinstance(geometry, dict):
         return False
     geometry_type = geometry.get("type")
@@ -44,6 +49,12 @@ def point_in_geometry(lng, lat, geometry):
 
 
 def point_in_geojson_range(lng, lat, range_def):
+    # 最上層 range 過濾，接受多種格式：
+    #   None / list(舊 bbox) → 無限制，直接 True
+    #   Polygon / MultiPolygon → 幾何判斷
+    #   Feature → 取 .geometry 判斷
+    #   FeatureCollection → 任一 Feature 包含即 True
+    #   含 bbox key → 視為無限制（bbox 裁切由上層處理）
     if not range_def:
         return True
     if isinstance(range_def, list):

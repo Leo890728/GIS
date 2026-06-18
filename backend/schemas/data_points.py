@@ -6,6 +6,7 @@ def is_number(value):
 
 
 def parse_timestamp(value):
+    # 將 ISO 8601 字串統一轉為 UTC datetime；格式不合或空值回傳 None
     if not value:
         return None
     if not isinstance(value, str):
@@ -21,10 +22,15 @@ def parse_timestamp(value):
 
 
 def feature_timestamp(feature):
+    # 從 Feature.properties.timestamp 取得 UTC datetime，用於 dataset 排序與過濾
     return parse_timestamp(feature.get("properties", {}).get("timestamp"))
 
 
 def normalize_point_feature(feature):
+    # 驗證並正規化單一 GeoJSON Point Feature：
+    #   - type 必須為 Feature，geometry 必須為 Point
+    #   - coordinates 須為 [lng, lat]（數字）
+    #   - id 必填（Feature.id 或 properties.id），作為 upsert key
     if not isinstance(feature, dict) or feature.get("type") != "Feature":
         raise ValueError("Every item must be a GeoJSON Feature")
 
@@ -56,6 +62,7 @@ def normalize_point_feature(feature):
 
 
 def normalize_point_collection(payload):
+    # 驗證 FeatureCollection，逐一正規化每個 Feature
     if not isinstance(payload, dict) or payload.get("type") != "FeatureCollection":
         raise ValueError("Body must be a GeoJSON FeatureCollection")
     features = payload.get("features")

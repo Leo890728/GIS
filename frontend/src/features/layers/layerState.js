@@ -35,15 +35,39 @@ export const createLayerState = (apiBaseUrl) => ({
     minVisibleZoom: 12,
     active: true
   },
-  stat_zone_min_113: {
-    label: '最小統計區',
-    sourceId: 'stat_zone_min_113-source',
-    layerId: 'stat_zone_min_113-line',
-    sourceLayer: 'datageojson',
-    url: `${apiBaseUrl}/tiles/stat_zone_min_113/{z}/{x}/{y}.pbf`,
-    color: '#72e9b7',
+  stat_zone_2: {
+    label: '二級發布區',
+    sourceId: 'stat_zone_2-source',
+    layerId: 'stat_zone_2-line',
+    sourceLayer: 'stat_zone_2',
+    url: `${apiBaseUrl}/tiles/stat_zone_2/{z}/{x}/{y}.pbf`,
+    color: '#a78bfa',
+    lineWidthScale: 1,
+    maxNativeZoom: 12,
+    minVisibleZoom: 9,
+    active: false
+  },
+  stat_zone_1: {
+    label: '一級發布區',
+    sourceId: 'stat_zone_1-source',
+    layerId: 'stat_zone_1-line',
+    sourceLayer: 'stat_zone_1',
+    url: `${apiBaseUrl}/tiles/stat_zone_1/{z}/{x}/{y}.pbf`,
+    color: '#34d399',
     lineWidthScale: 1,
     maxNativeZoom: 13,
+    minVisibleZoom: 11,
+    active: false
+  },
+  stat_zone: {
+    label: '最小統計區',
+    sourceId: 'stat_zone-source',
+    layerId: 'stat_zone-line',
+    sourceLayer: 'stat_zone',
+    url: `${apiBaseUrl}/tiles/stat_zone/{z}/{x}/{y}.pbf`,
+    color: '#72e9b7',
+    lineWidthScale: 1,
+    maxNativeZoom: 14,
     minVisibleZoom: 12,
     active: false
   }

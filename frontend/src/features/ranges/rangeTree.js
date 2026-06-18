@@ -74,7 +74,7 @@ export const buildRangeRequest = (rangeTree, selectedRangeIds) => {
         villageCodes.push(node.code)
         return
       }
-      if (node.level === 'stat_zone_min_113') {
+      if (node.level === 'stat_zone') {
         statZoneCodes.push(node.code)
         return
       }

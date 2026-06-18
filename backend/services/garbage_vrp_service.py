@@ -885,7 +885,6 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
     has_explicit_geojson = isinstance(range_payload.get("geojson"), dict)
 
     config, start_coord, end_coord = _parse_config(payload)
-    range_geojson = _build_range_geojson(range_payload, regions_service)
 
     mode = node_source.get("mode") or "preset"
     demand_field = _as_string(node_source.get("demandField"), "nodeSource.demandField")
@@ -896,6 +895,9 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
     )
 
     if mode == "preset":
+        # preset mode queries stat_zone_point_cache directly via code filters —
+        # geojson boundary is only needed when the caller provides explicit geojson
+        range_geojson = _build_range_geojson(range_payload, regions_service) if has_explicit_geojson else None
         features = _collect_preset_nodes(
             node_source,
             range_payload,
@@ -904,6 +906,7 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
             has_explicit_geojson,
         )
     elif mode == "dataset":
+        range_geojson = _build_range_geojson(range_payload, regions_service)
         features = _collect_dataset_nodes(node_source, range_geojson, dataset_service)
     else:
         raise ValueError("nodeSource.mode must be preset or dataset")

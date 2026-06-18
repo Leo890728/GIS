@@ -15,7 +15,9 @@ const layerDetailMap = {
   county: 'County Boundary',
   township: 'Township Boundary',
   village: 'Village Boundary',
-  stat_zone_min_113: 'Statistical Zone (Min 113)'
+  stat_zone: '最小統計區',
+  stat_zone_1: '一級發布區',
+  stat_zone_2: '二級發布區'
 }
 
 const layerItems = computed(() =>

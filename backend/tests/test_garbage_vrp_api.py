@@ -1,13 +1,10 @@
-import tempfile
 import unittest
-from pathlib import Path
 from unittest import mock
 
 from backend.app import create_app
-from backend.config import GEOJSON_DIR, RANGE_STYLES
+from backend.config import BOUNDS_DB_PATH, DATA_DB_PATH, RANGE_STYLES
 from backend.services.dataset_service import DatasetService
 from backend.services.garbage_vrp_service import _build_route_geometry_from_osrm, _snap_pickup_nodes_to_road
-from backend.services.regions_db import import_admin_regions
 from backend.services.regions_service import RegionsService
 
 
@@ -33,27 +30,12 @@ def fake_fetcher(request_data_or_url):
 
 
 class GarbageVrpApiTestCase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        cls.regions_db_path = Path(cls.temp_dir.name) / "regions.sqlite"
-        import_admin_regions(
-            geojson_dir=GEOJSON_DIR,
-            db_path=cls.regions_db_path,
-            spatialite_extension_path=None,
-            require_spatialite=False,
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.temp_dir.cleanup()
-
     def setUp(self):
         dataset_service = DatasetService(
             {
                 "stat_zone_population_points": {
                     "adapter": "regions_sqlite_stat_zone_points",
-                    "db_path": str(self.regions_db_path),
+                    "db_path": str(BOUNDS_DB_PATH),
                     "refresh_seconds": 600,
                     "limit": 100000,
                     "fields": {
@@ -90,12 +72,10 @@ class GarbageVrpApiTestCase(unittest.TestCase):
             {
                 "TESTING": True,
                 "REGIONS_SERVICE": RegionsService(
-                    geojson_dir=GEOJSON_DIR,
+                    bounds_path=BOUNDS_DB_PATH,
+                    data_path=DATA_DB_PATH,
                     range_styles=RANGE_STYLES,
-                    db_path=self.regions_db_path,
                     spatialite_extension_path=None,
-                    sync_mode="manual",
-                    sync_strict=True,
                 ),
                 "DATASET_SERVICE": dataset_service,
             }

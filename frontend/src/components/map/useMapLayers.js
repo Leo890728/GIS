@@ -12,7 +12,7 @@ const getLineWidthExpression = (key, scale = 1) => {
 
 export const getBoundaryLayerIds = (layerState) =>
   [
-    layerState.stat_zone_min_113?.layerId,
+    layerState.stat_zone?.layerId,
     layerState.village?.layerId,
     layerState.township?.layerId,
     layerState.county?.layerId
