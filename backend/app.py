@@ -13,6 +13,7 @@ from backend.config import (
     DATA_DB_PATH,
     DATASETS,
     DATA_SOURCES,
+    HISTORY_DB_PATH,
     PMTILES_BIN,
     RANGE_STYLES,
     SPATIALITE_EXTENSION_PATH,
@@ -20,6 +21,7 @@ from backend.config import (
 from backend.routes import ALL_BLUEPRINTS
 from backend.services.cache_db import CacheDb
 from backend.services.dataset_service import DatasetService
+from backend.services.history_db import HistoryDb
 from backend.services.regions_service import RegionsService
 
 
@@ -43,7 +45,9 @@ def create_app(config_overrides=None):
 
     if "DATASET_SERVICE" not in app.config:
         app.config["DATASET_SERVICE"] = DatasetService(
-            DATA_SOURCES, cache_db=CacheDb(CACHE_DB_PATH)
+            DATA_SOURCES,
+            cache_db=CacheDb(CACHE_DB_PATH),
+            history_db=HistoryDb(HISTORY_DB_PATH),
         )
 
     for blueprint in ALL_BLUEPRINTS:

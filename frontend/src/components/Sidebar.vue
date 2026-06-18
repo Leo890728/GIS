@@ -4,6 +4,7 @@ import {
   Circle,
   Database,
   Hand,
+  History,
   Navigation,
   MousePointer2,
   PanelLeftClose,
@@ -17,6 +18,7 @@ import BasemapPanel from '../features/basemaps/BasemapPanel.vue'
 import LayerPanel from '../features/layers/LayerPanel.vue'
 import RangePanel from '../features/ranges/RangePanel.vue'
 import RoutePanel from '../features/route/RoutePanel.vue'
+import SimulatorPanel from '../features/simulator/SimulatorPanel.vue'
 
 const props = defineProps({
   layerState: {
@@ -79,6 +81,18 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
+  simulatorState: {
+    type: Object,
+    required: true
+  },
+  simulatorCandidates: {
+    type: Array,
+    default: () => []
+  },
+  simulatorSpeeds: {
+    type: Array,
+    default: () => [1, 10, 30, 60]
+  },
   collapsed: {
     type: Boolean,
     default: false
@@ -99,7 +113,14 @@ const emit = defineEmits([
   'update-route-field',
   'set-route-pick-mode',
   'solve-route',
-  'clear-route'
+  'clear-route',
+  'select-simulator-dataset',
+  'set-simulator-time',
+  'toggle-simulator-play',
+  'set-simulator-speed',
+  'step-simulator',
+  'toggle-simulator-smooth',
+  'stop-simulator'
 ])
 
 const activeMode = ref('ranges')
@@ -109,7 +130,8 @@ const modeLabels = {
   layers: 'Boundary',
   ranges: 'Ranges',
   route: 'Route',
-  data: 'Data'
+  data: 'Data',
+  simulator: 'Simulator'
 }
 
 const openMode = (mode) => {
@@ -204,6 +226,16 @@ const drawingTools = [
           <Navigation :size="14" />
           <span>Route</span>
         </button>
+        <button
+          class="compact-mode-btn"
+          :class="{ active: activeMode === 'simulator' }"
+          type="button"
+          :aria-pressed="activeMode === 'simulator'"
+          @click="openMode('simulator')"
+        >
+          <History :size="14" />
+          <span>Simulator</span>
+        </button>
       </div>
     </div>
 
@@ -254,6 +286,15 @@ const drawingTools = [
         >
           Data
         </button>
+        <button
+          class="mode-btn"
+          :class="{ active: activeMode === 'simulator' }"
+          type="button"
+          :aria-pressed="activeMode === 'simulator'"
+          @click="activeMode = 'simulator'"
+        >
+          Simulator
+        </button>
       </div>
 
       <BasemapPanel
@@ -291,6 +332,20 @@ const drawingTools = [
         @set-pick-mode="emit('set-route-pick-mode', $event)"
         @solve-route="emit('solve-route')"
         @clear-route="emit('clear-route')"
+      />
+
+      <SimulatorPanel
+        v-else-if="activeMode === 'simulator'"
+        :simulator-state="simulatorState"
+        :simulator-candidates="simulatorCandidates"
+        :simulator-speeds="simulatorSpeeds"
+        @select-dataset="emit('select-simulator-dataset', $event)"
+        @set-time="emit('set-simulator-time', $event)"
+        @toggle-play="emit('toggle-simulator-play')"
+        @set-speed="emit('set-simulator-speed', $event)"
+        @step="emit('step-simulator', $event)"
+        @toggle-smooth="emit('toggle-simulator-smooth')"
+        @stop="emit('stop-simulator')"
       />
 
       <DataPanel

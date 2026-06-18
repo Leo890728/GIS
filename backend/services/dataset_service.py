@@ -4,6 +4,7 @@ import hashlib
 import httpx
 
 from backend.data_sources import ADAPTER_REGISTRY
+from backend.services.history_track_service import build_entity_tracks
 from backend.services.point_aggregate import aggregate_grouped
 from backend.services.point_query import query_points
 
@@ -26,12 +27,15 @@ def to_float(value):
 
 
 class DatasetService:
-    def __init__(self, sources, fetcher=None, now_func=None, adapters=None, cache_db=None):
+    def __init__(self, sources, fetcher=None, now_func=None, adapters=None, cache_db=None, history_db=None, osrm_route_fetcher=None):
         self.sources = sources or {}
         self.fetcher = fetcher or self._default_fetcher
         self.now_func = now_func or utc_now
         self.adapters = adapters or ADAPTER_REGISTRY
         self.cache_db = cache_db
+        self.history_db = history_db
+        self.osrm_route_fetcher = osrm_route_fetcher
+        self._osrm_leg_cache = {}
         self._http_client = None
         self._cache = {}
         if cache_db:
@@ -77,6 +81,7 @@ class DatasetService:
                 self.cache_db.save_dataset(
                     data_id, features, now, now, now + timedelta(seconds=interval)
                 )
+            self._record_history(data_id, source, features, now)
         except Exception as err:  # pragma: no cover
             entry["last_error"] = str(err)
             if not self._entry_has_valid_features(entry):
@@ -115,6 +120,68 @@ class DatasetService:
             raise ValueError("metrics must be an array")
         filtered = query_points(features, payload)
         return aggregate_grouped(filtered, metrics, payload.get("groupBy"))
+
+    # ------------------------------------------------------------------
+    # history (diff-based capture log for Live datasets)
+
+    def _record_history(self, data_id, source, features, now):
+        if not self.history_db:
+            return
+        history = source.get("history") or {}
+        if not history.get("enabled"):
+            return
+        fields = source.get("fields", {})
+        ignore_fields = {fields.get("timestamp", "time"), "timestamp"}
+        try:
+            self.history_db.append(
+                data_id,
+                now,
+                features,
+                key_fields=history.get("key") or [],
+                ignore_fields=tuple(ignore_fields),
+                keyframe_interval=history.get("keyframe_interval", 50),
+                retention_days=history.get("retention_days"),
+            )
+        except Exception:  # pragma: no cover - history is best-effort
+            # Never let history capture break the live data flow.
+            pass
+
+    def _require_history(self, data_id):
+        source = self._get_source(data_id)
+        history = source.get("history") or {}
+        if not self.history_db or not history.get("enabled"):
+            raise KeyError(f"History not available for dataId: {data_id}")
+        return source
+
+    def history_range(self, data_id):
+        self._require_history(data_id)
+        return self.history_db.range(data_id)
+
+    def history_frames(self, data_id, frm=None, to=None):
+        self._require_history(data_id)
+        return self.history_db.frames(data_id, frm, to)
+
+    def history_state_at(self, data_id, t):
+        source = self._require_history(data_id)
+        key_fields = (source.get("history") or {}).get("key") or []
+        return self.history_db.state_at(data_id, t, key_fields)
+
+    def history_tracks(self, data_id, frm=None, to=None):
+        source = self._require_history(data_id)
+        history = source.get("history") or {}
+        key_fields = history.get("key") or []
+        osrm = history.get("osrm") or {}
+        return build_entity_tracks(
+            self.history_db,
+            data_id,
+            key_fields,
+            frm,
+            to,
+            osrm_base_url=osrm.get("base_url") or "http://localhost:5001",
+            profile=osrm.get("profile") or "driving",
+            route_fetcher=self.osrm_route_fetcher,
+            leg_cache=self._osrm_leg_cache,
+        )
 
     def _get_source(self, data_id):
         source = self.sources.get(data_id)

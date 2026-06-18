@@ -113,6 +113,8 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
   let dynamicPollingTimer = null
   let dynamicPollingBusy = false
   const layerRequestSequence = new Map()
+  const simulatorLayerKey = ref(null)
+  const simulatorPriorActive = new Map()
 
   const buildPointQueryPayload = (layer) => {
     const query = layer.query || {}
@@ -172,6 +174,13 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
   const fetchLayerGeoJson = async (key, layer) => {
     const runtime = dataLayerRuntime.value[key]
     if (!runtime) return false
+
+    // While a layer is driven by the Simulator, its GeoJSON is supplied from
+    // history playback; skip live fetches so they do not overwrite it.
+    if (simulatorLayerKey.value === key) {
+      runtime.isFetching = false
+      return false
+    }
 
     if (layer?.query?.disabled === true) {
       dataLayerGeoJson.value[key] = emptyFeatureCollection()
@@ -328,6 +337,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
     const now = Date.now()
     return Object.entries(dataLayerState.value)
       .filter(([key, layer]) => layer.active && isDynamicLayer(layer) && dataLayerRuntime.value[key])
+      .filter(([key]) => key !== simulatorLayerKey.value)
       .filter(([key]) => {
         const runtime = dataLayerRuntime.value[key]
         return runtime.nextRefreshAt == null || runtime.nextRefreshAt <= now
@@ -389,6 +399,58 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
     })
   }
 
+  // --- Simulator integration -------------------------------------------------
+  // The Simulator (history playback) takes over an existing dynamic data layer:
+  // it pauses live polling for that layer and feeds reconstructed GeoJSON so the
+  // dataset's icons / heatmap / tooltips are reused as-is.
+
+  const findLayerKeyByDataId = (dataId) =>
+    Object.keys(dataLayerState.value).find(
+      (key) => (dataLayerState.value[key].query?.dataId || dataLayerState.value[key].dataId) === dataId
+    )
+
+  const getSimulatorCandidates = () =>
+    Object.entries(dataLayerState.value)
+      .filter(([, layer]) => isDynamicLayer(layer))
+      .map(([key, layer]) => ({ key, dataId: layer.query?.dataId || layer.dataId, label: layer.label || key }))
+
+  const exitSimulator = () => {
+    const key = simulatorLayerKey.value
+    simulatorLayerKey.value = null
+    if (!key || !dataLayerState.value[key]) return
+    if (simulatorPriorActive.has(key)) {
+      dataLayerState.value[key].active = simulatorPriorActive.get(key)
+      simulatorPriorActive.delete(key)
+    }
+    if (dataLayerState.value[key].active) {
+      refreshDataLayerByKey(key).catch((error) => console.error(error))
+    } else {
+      dataLayerGeoJson.value[key] = emptyFeatureCollection()
+    }
+  }
+
+  const enterSimulator = (dataId) => {
+    const key = findLayerKeyByDataId(dataId)
+    if (!key) return null
+    if (simulatorLayerKey.value && simulatorLayerKey.value !== key) {
+      exitSimulator()
+    }
+    const layer = dataLayerState.value[key]
+    if (!simulatorPriorActive.has(key)) {
+      simulatorPriorActive.set(key, layer.active)
+    }
+    simulatorLayerKey.value = key
+    layer.active = true
+    dataLayerGeoJson.value[key] = emptyFeatureCollection()
+    return layer
+  }
+
+  const setSimulatorGeoJson = (geojson) => {
+    const key = simulatorLayerKey.value
+    if (!key) return
+    dataLayerGeoJson.value[key] = geojson || emptyFeatureCollection()
+  }
+
   onMounted(() => {
     refreshDataLayers()
     setupDynamicPolling()
@@ -440,6 +502,10 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
     refreshDataAggregate,
     toggleDataLayer,
     setDataLayerMode,
-    setRangePointFilterEnabled
+    setRangePointFilterEnabled,
+    getSimulatorCandidates,
+    enterSimulator,
+    exitSimulator,
+    setSimulatorGeoJson
   }
 }

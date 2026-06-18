@@ -31,6 +31,14 @@ RANGE_STYLES = {
 }
 
 CACHE_DB_PATH = BACKEND_DIR / "data" / "cache.sqlite"
+HISTORY_DB_PATH = BACKEND_DIR / "data" / "history.sqlite"
+
+# Road-following playback smoothing uses the FULL-network OSRM (with alleys);
+# the no-alley instance (:5002) is for VRP planning and must not be used here.
+HISTORY_OSRM = {
+    "base_url": os.getenv("HISTORY_OSRM_URL", "http://localhost:5001"),
+    "profile": os.getenv("HISTORY_OSRM_PROFILE", "driving"),
+}
 SPATIALITE_EXTENSION_PATH = os.getenv(
     "SPATIALITE_EXTENSION_PATH",
     str(ROOT / "tools" / "spatialite" / "mod_spatialite.dll"),
@@ -46,6 +54,13 @@ DATA_SOURCES = {
 			"lng": "X",
 			"lat": "Y",
 			"timestamp": "time",
+		},
+		"history": {
+			"enabled": True,
+			"key": ["lineid", "car"],
+			"keyframe_interval": 50,
+			"retention_days": 7,
+			"osrm": HISTORY_OSRM,
 		},
 	},
 	"taichung_garbage_recycling_dynamic_V2": {
@@ -68,6 +83,13 @@ DATA_SOURCES = {
 			"lng": "x",
 			"lat": "y",
 			"timestamp": "dt",
+		},
+		"history": {
+			"enabled": True,
+			"key": ["car_id"],
+			"keyframe_interval": 50,
+			"retention_days": 7,
+			"osrm": HISTORY_OSRM,
 		},
 	},
     "stat_zone_population_points": {

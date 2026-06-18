@@ -65,6 +65,7 @@ const emit = defineEmits(['toggle-layer', 'toggle-data-layer', 'toggle-route-lay
 const mapEl = ref(null)
 const map = ref(null)
 const dataHoverPopup = ref(null)
+let lastHoverPoint = null
 const status = ref({ loading: false, error: '' })
 const layerStateRef = toRef(props, 'layerState')
 const selectedRangeGeoJsonRef = toRef(props, 'selectedRangeGeoJson')
@@ -328,6 +329,17 @@ const handleDataHover = (event) => {
   m.getCanvas().style.cursor = 'pointer'
 }
 
+// While a tooltip is open, re-run the hover lookup as the underlying data
+// updates (e.g. during simulator playback) so its content/position track the
+// moving points instead of going stale.
+const refreshHoverFromData = () => {
+  if (!dataHoverPopup.value || !lastHoverPoint || !map.value) return
+  requestAnimationFrame(() => {
+    if (!dataHoverPopup.value || !lastHoverPoint || !map.value) return
+    handleDataHover(lastHoverPoint)
+  })
+}
+
 const createMap = () => {
   const initialTiles = Array.isArray(props.activeBasemap?.tiles) ? props.activeBasemap.tiles : []
   map.value = new maplibregl.Map({
@@ -372,7 +384,10 @@ const createMap = () => {
     refreshLoading()
   })
 
-  map.value.on('mousemove', handleDataHover)
+  map.value.on('mousemove', (event) => {
+    lastHoverPoint = { point: event.point, lngLat: event.lngLat }
+    handleDataHover(event)
+  })
   map.value.on('click', (event) => {
     if (!['start', 'end'].includes(props.routePickMode)) return
     emit('route-map-click', {
@@ -383,7 +398,12 @@ const createMap = () => {
   map.value.on('mouseout', hideDataHoverPopup)
   map.value.on('dragstart', hideDataHoverPopup)
   map.value.on('zoomstart', hideDataHoverPopup)
-  map.value.on('sourcedata', refreshLoading)
+  // Only the raster basemap drives the "loading tiles" status; data-source
+  // updates (e.g. simulator playback writing GeoJSON every frame) must not
+  // toggle it, otherwise the indicator flickers.
+  map.value.on('sourcedata', (event) => {
+    if (event.sourceId === basemapSourceId) refreshLoading()
+  })
   map.value.on('idle', refreshLoading)
   map.value.on('error', (event) => {
     const message = event?.error?.message || 'Map rendering error'
@@ -437,6 +457,7 @@ watch(
   () => props.dataLayerGeoJson,
   () => {
     updateDataLayerGeoJson()
+    refreshHoverFromData()
   },
   { deep: true }
 )
