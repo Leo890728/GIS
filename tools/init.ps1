@@ -121,7 +121,7 @@ if ($SkipDownload) {
     Write-Host "Skipped." -ForegroundColor DarkGray
 } else {
     New-Item -ItemType Directory -Force backend\shp | Out-Null
-    docker run --rm -v "${PWD}:/workspace" $GDAL sh /workspace/tools/docker/download_shp.sh
+    docker run --rm -v "${PWD}:/workspace" $GDAL sh -c "tr -d '\015' < /workspace/tools/docker/download_shp.sh | sh"
     Assert-Exit "download_shp.sh failed"
 }
 
@@ -133,7 +133,7 @@ if ($SkipImport) {
 } else {
     New-Item -ItemType Directory -Force backend\data | Out-Null
 
-    docker run --rm -v "${PWD}:/workspace" $GDAL sh /workspace/tools/docker/import_bounds.sh
+    docker run --rm -v "${PWD}:/workspace" $GDAL sh -c "tr -d '\015' < /workspace/tools/docker/import_bounds.sh | sh"
     Assert-Exit "import_bounds.sh failed"
 
     Write-Host "Building precomputed tables..." -ForegroundColor DarkGray
