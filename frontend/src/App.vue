@@ -155,10 +155,18 @@ const handleToggleRouteLayer = (layerKey) => {
         :route-anchor-geo-json="routeAnchorGeoJson"
         :route-layer-visibility="routeLayerVisibility"
         :route-pick-mode="pickMode"
+        :simulator-state="simulatorState"
+        :simulator-speeds="simulatorSpeeds"
         @toggle-layer="toggleLayer"
         @toggle-data-layer="toggleDataLayer"
         @toggle-route-layer="handleToggleRouteLayer"
         @route-map-click="handleMapDepotPick"
+        @simulator-set-time="setSimulatorTime"
+        @simulator-toggle-play="toggleSimulatorPlay"
+        @simulator-set-speed="setSimulatorSpeed"
+        @simulator-step="stepSimulatorFrame"
+        @simulator-toggle-smooth="toggleSimulatorSmooth"
+        @simulator-stop="stopSimulator"
       />
     </main>
   </div>

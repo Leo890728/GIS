@@ -6,6 +6,7 @@ import { formatTooltipItemValue } from '../features/data/formatters'
 import { getBoundaryLayerIds, useMapLayers } from './map/useMapLayers'
 import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
 import { useMapRouteLayers } from './map/useMapRouteLayers'
+import SimulatorControlBar from '../features/simulator/SimulatorControlBar.vue'
 
 const basemapSourceId = 'basemap-source'
 const basemapLayerId = 'basemap-layer'
@@ -57,10 +58,29 @@ const props = defineProps({
   routePickMode: {
     type: String,
     default: ''
+  },
+  simulatorState: {
+    type: Object,
+    default: () => ({ active: false })
+  },
+  simulatorSpeeds: {
+    type: Array,
+    default: () => [1, 10, 30, 60]
   }
 })
 
-const emit = defineEmits(['toggle-layer', 'toggle-data-layer', 'toggle-route-layer', 'route-map-click'])
+const emit = defineEmits([
+  'toggle-layer',
+  'toggle-data-layer',
+  'toggle-route-layer',
+  'route-map-click',
+  'simulator-set-time',
+  'simulator-toggle-play',
+  'simulator-set-speed',
+  'simulator-step',
+  'simulator-toggle-smooth',
+  'simulator-stop'
+])
 
 const mapEl = ref(null)
 const map = ref(null)
@@ -582,6 +602,18 @@ onBeforeUnmount(() => {
       <p v-if="status.loading" class="status-row">Loading map tiles...</p>
       <p v-else class="status-row">{{ status.error }}</p>
     </div>
+
+    <SimulatorControlBar
+      v-if="props.simulatorState?.active"
+      :simulator-state="props.simulatorState"
+      :simulator-speeds="props.simulatorSpeeds"
+      @set-time="emit('simulator-set-time', $event)"
+      @toggle-play="emit('simulator-toggle-play')"
+      @set-speed="emit('simulator-set-speed', $event)"
+      @step="emit('simulator-step', $event)"
+      @toggle-smooth="emit('simulator-toggle-smooth')"
+      @stop="emit('simulator-stop')"
+    />
   </section>
 </template>
 
