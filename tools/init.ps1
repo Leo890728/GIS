@@ -2,12 +2,14 @@
 # Requires: Docker (running), internet access
 #
 # Usage (from repo root):
-#   .\tools\init.ps1
-#   .\tools\init.ps1 -SkipDownload    # SHP already in backend/shp/
-#   .\tools\init.ps1 -SkipImport      # bounds.sqlite already built
-#   .\tools\init.ps1 -SkipPmtiles     # PMTiles already built
+#   .\tools\init.ps1                   # build everything from source
+#   .\tools\init.ps1 -FromRelease      # download pre-built assets from GitHub Release (no Docker needed)
+#   .\tools\init.ps1 -SkipDownload     # SHP already in backend/shp/
+#   .\tools\init.ps1 -SkipImport       # bounds.sqlite already built
+#   .\tools\init.ps1 -SkipPmtiles      # PMTiles already built
 
 param(
+    [switch]$FromRelease,
     [switch]$SkipTools,
     [switch]$SkipDownload,
     [switch]$SkipImport,
@@ -15,10 +17,15 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$REPO = "Leo890728/GIS"
 
 function Step($n, $total, $label) {
     Write-Host ""
     Write-Host "=== [$n/$total] $label ===" -ForegroundColor Cyan
+}
+
+function Assert-Exit($msg) {
+    if ($LASTEXITCODE -ne 0) { throw "$msg (exit $LASTEXITCODE)" }
 }
 
 function Assert-Docker {
@@ -29,10 +36,68 @@ function Assert-Docker {
     if ($LASTEXITCODE -ne 0) { throw "Docker is not running." }
 }
 
-function Assert-Exit($msg) {
-    if ($LASTEXITCODE -ne 0) { throw "$msg (exit $LASTEXITCODE)" }
+function Expand-Gz($src, $dst) {
+    $inputStream  = [System.IO.File]::OpenRead($src)
+    $outputStream = [System.IO.File]::Create($dst)
+    $gzStream     = [System.IO.Compression.GZipStream]::new($inputStream, [System.IO.Compression.CompressionMode]::Decompress)
+    $gzStream.CopyTo($outputStream)
+    $gzStream.Dispose(); $outputStream.Dispose(); $inputStream.Dispose()
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# MODE A: Download pre-built assets from GitHub Release
+# ══════════════════════════════════════════════════════════════════════════════
+if ($FromRelease) {
+    Write-Host ""
+    Write-Host "=== Downloading pre-built assets from GitHub Release ===" -ForegroundColor Cyan
+
+    # Fetch latest release metadata
+    $api      = "https://api.github.com/repos/$REPO/releases/latest"
+    $headers  = @{ "User-Agent" = "init.ps1" }
+    $release  = Invoke-RestMethod -Uri $api -Headers $headers
+    $tag      = $release.tag_name
+    Write-Host "Release: $tag" -ForegroundColor DarkGray
+
+    New-Item -ItemType Directory -Force backend\data    | Out-Null
+    New-Item -ItemType Directory -Force backend\pmtiles | Out-Null
+    New-Item -ItemType Directory -Force backend\tmp     | Out-Null
+
+    foreach ($asset in $release.assets) {
+        $name = $asset.name
+        $url  = $asset.browser_download_url
+        $mb   = [math]::Round($asset.size / 1MB, 1)
+
+        if ($name -like "*.sqlite.gz") {
+            $dst = "backend\tmp\$name"
+            Write-Host "  Downloading $name (${mb} MB)..."
+            Invoke-WebRequest -Uri $url -OutFile $dst -UseBasicParsing
+            $outName = $name -replace '\.gz$', ''
+            Write-Host "  Decompressing → backend\data\$outName ..."
+            Expand-Gz $dst "backend\data\$outName"
+            Remove-Item $dst
+
+        } elseif ($name -like "*.pmtiles") {
+            Write-Host "  Downloading $name (${mb} MB)..."
+            Invoke-WebRequest -Uri $url -OutFile "backend\pmtiles\$name" -UseBasicParsing
+        }
+    }
+
+    # Setup pmtiles.exe (still needed for tile serving)
+    if (-not (Test-Path "tools\pmtiles\pmtiles.exe")) {
+        Write-Host ""
+        Write-Host "  Setting up tools..." -ForegroundColor DarkGray
+        & .\tools\setup.ps1
+    }
+
+    Write-Host ""
+    Write-Host "=== Done ===" -ForegroundColor Green
+    Write-Host "Next: python -m backend.app" -ForegroundColor DarkGray
+    exit 0
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODE B: Build from source
+# ══════════════════════════════════════════════════════════════════════════════
 $GDAL       = "ghcr.io/osgeo/gdal:alpine-normal-latest"
 $TIPPECANOE = "ghcr.io/leo890728/tippecanoe:latest"
 $TOTAL      = 5

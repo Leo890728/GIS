@@ -1,0 +1,42 @@
+直轄市、縣市界線(TWD97經緯度) (County)
+內政部國土測繪中心
+https://www.tgos.tw/tgos/VirtualDir/Product/1cd4f4c9-6b01-4cf9-bf6c-23a73aa17d24/%E7%9B%B4%E8%BD%84%E5%B8%82%E3%80%81%E7%B8%A3(%E5%B8%82)%E7%95%8C%E7%B7%9A1140318.zip
+格式: SHP
+編碼: UTF-8
+欄位: COUNTYID、COUNTYCODE、COUNTYNAME、COUNTYENG、TYPE、TYPE_ENG
+
+鄉鎮市區界線(TWD97經緯度) (Township)
+內政部國土測繪中心
+https://www.tgos.tw/tgos/VirtualDir/Product/3fe61d4a-ca23-4f45-8aca-4a536f40f290/%E9%84%89(%E9%8E%AE%E3%80%81%E5%B8%82%E3%80%81%E5%8D%80)%E7%95%8C%E7%B7%9A1140318.zip
+格式: SHP 
+編碼: UTF-8
+欄位: TOWNID、TOWNCODE、COUNTYNAME、TOWNNAME、TOWNENG、COUNTYID、COUNTYCODE
+
+村里界圖(TWD97經緯度) (Village)
+內政部國土測繪中心
+https://www.tgos.tw/tgos/VirtualDir/Product/a04697c8-64db-450a-a105-3eb471c45abd/%E6%9D%91(%E9%87%8C)%E7%95%8C(TWD97%E7%B6%93%E7%B7%AF%E5%BA%A6)1150511.zip
+格式: SHP 
+編碼: UTF-8
+欄位: VILLCODE、COUNTYNAME、TOWNNAME、VILLNAME、VILLENG、COUNTYID、COUNTYCODE、TOWNID、TOWNCODE、NOTE
+
+
+全國二級發布區圖 (Second-level Dissemination Area)
+統計處
+https://opdadm.moi.gov.tw/api/v1/no-auth/resource/api/dataset/38C0F19D-843A-46F1-9B93-7393A83A1920/resource/F3B9120C-F312-42EB-A5CB-EDFC1CC41B47/download
+格式: SHP 
+編碼: BIG5
+欄位: CODE2、TOWN_ID、TOWN、COUNTY_ID、COUNTY、U_ID、AREA、X、Y
+
+全國一級發布區圖 (First-level Dissemination Area)
+統計處
+https://opdadm.moi.gov.tw/api/v1/no-auth/resource/api/dataset/46F3CC1B-A51E-4C26-8C5A-74449E1299AE/resource/D3CB08BA-001D-4FFE-9FA4-7F2FA4B758FA/download
+格式: SHP 
+編碼: BIG5
+欄位: CODE1、CODE2、TOWN_ID、TOWN、COUNTY_ID、COUNTY、U_ID、AREA、X、Y
+
+最小統計區圖 (basic statistical area)
+統計處
+-
+格式: SHP 
+編碼: BIG5
+欄位: U_ID、CODEBASE、CODE1、CODE2、TOWN_ID、TOWN、COUNTY_ID、COUNTY、X、Y、AREA
