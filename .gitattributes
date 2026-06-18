@@ -1,0 +1,7 @@
+# Default: auto CRLF on Windows
+* text=auto
+
+# Shell scripts must stay LF (run inside Docker/Linux)
+*.sh text eol=lf
+*.lua text eol=lf
+*.py text eol=lf
