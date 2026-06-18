@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -22,7 +23,18 @@ from backend.routes import ALL_BLUEPRINTS
 from backend.services.cache_db import CacheDb
 from backend.services.dataset_service import DatasetService
 from backend.services.history_db import HistoryDb
+from backend.services.history_poller import start_history_poller
 from backend.services.regions_service import RegionsService
+
+
+def _history_poll_enabled():
+    if os.getenv("HISTORY_BACKGROUND_POLL", "1").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    # Under the Werkzeug debug reloader two processes import the app; only the
+    # reloader child sets WERKZEUG_RUN_MAIN. Skip the parent to avoid double jobs.
+    if os.getenv("RUN_DEV_SERVER") == "1" and os.getenv("WERKZEUG_RUN_MAIN") != "true":
+        return False
+    return True
 
 
 def create_app(config_overrides=None):
@@ -44,11 +56,14 @@ def create_app(config_overrides=None):
         )
 
     if "DATASET_SERVICE" not in app.config:
-        app.config["DATASET_SERVICE"] = DatasetService(
+        dataset_service = DatasetService(
             DATA_SOURCES,
             cache_db=CacheDb(CACHE_DB_PATH),
             history_db=HistoryDb(HISTORY_DB_PATH),
         )
+        app.config["DATASET_SERVICE"] = dataset_service
+        if _history_poll_enabled():
+            app.config["HISTORY_POLLER"] = start_history_poller(dataset_service, DATA_SOURCES)
 
     for blueprint in ALL_BLUEPRINTS:
         app.register_blueprint(blueprint)
@@ -57,5 +72,6 @@ def create_app(config_overrides=None):
 
 
 if __name__ == "__main__":
+    os.environ["RUN_DEV_SERVER"] = "1"
     app = create_app()
     app.run(host="0.0.0.0", port=5000, debug=True)
