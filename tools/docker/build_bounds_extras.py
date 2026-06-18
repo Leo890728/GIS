@@ -20,8 +20,10 @@ DATA   = os.getenv("DATA_DB",   "/workspace/backend/data/data.sqlite")
 def main():
     if not Path(BOUNDS).exists():
         sys.exit(f"ERROR: {BOUNDS} not found")
-    if not Path(DATA).exists():
-        sys.exit(f"ERROR: {DATA} not found")
+
+    has_data = Path(DATA).exists()
+    if not has_data:
+        print(f"WARNING: {DATA} not found — p_cnt will be NULL in stat_zone_point_cache")
 
     conn = sqlite3.connect(BOUNDS)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -59,7 +61,8 @@ def main():
 
     # ── 2. stat_zone_point_cache ──────────────────────────────────────────────
     print("=== [2/2] stat_zone_point_cache ===")
-    conn.execute(f"ATTACH '{DATA}' AS d")
+    if has_data:
+        conn.execute(f"ATTACH '{DATA}' AS d")
     conn.execute("DROP TABLE IF EXISTS stat_zone_point_cache")
     conn.execute("""
         CREATE TABLE stat_zone_point_cache (
@@ -72,21 +75,36 @@ def main():
             p_cnt     REAL
         )
     """)
-    conn.execute("""
-        INSERT INTO stat_zone_point_cache
-            (codebase, villcode, county_id, town_id, lng, lat, p_cnt)
-        SELECT
-            sz.codebase,
-            m.villcode,
-            sz.county_id,
-            sz.town_id,
-            ST_X(ST_Centroid(sz.GEOMETRY)),
-            ST_Y(ST_Centroid(sz.GEOMETRY)),
-            CAST(da.P_CNT AS REAL)
-        FROM stat_zone sz
-        LEFT JOIN stat_zone_village_map m  ON m.codebase  = sz.codebase
-        LEFT JOIN d.stat_zone_stats_113 da ON da.CODEBASE = sz.codebase
-    """)
+    if has_data:
+        conn.execute("""
+            INSERT INTO stat_zone_point_cache
+                (codebase, villcode, county_id, town_id, lng, lat, p_cnt)
+            SELECT
+                sz.codebase,
+                m.villcode,
+                sz.county_id,
+                sz.town_id,
+                ST_X(ST_Centroid(sz.GEOMETRY)),
+                ST_Y(ST_Centroid(sz.GEOMETRY)),
+                CAST(da.P_CNT AS REAL)
+            FROM stat_zone sz
+            LEFT JOIN stat_zone_village_map m  ON m.codebase  = sz.codebase
+            LEFT JOIN d.stat_zone_stats_113 da ON da.CODEBASE = sz.codebase
+        """)
+    else:
+        conn.execute("""
+            INSERT INTO stat_zone_point_cache
+                (codebase, villcode, county_id, town_id, lng, lat)
+            SELECT
+                sz.codebase,
+                m.villcode,
+                sz.county_id,
+                sz.town_id,
+                ST_X(ST_Centroid(sz.GEOMETRY)),
+                ST_Y(ST_Centroid(sz.GEOMETRY))
+            FROM stat_zone sz
+            LEFT JOIN stat_zone_village_map m ON m.codebase = sz.codebase
+        """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_szpc_villcode  ON stat_zone_point_cache (villcode)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_szpc_county_id ON stat_zone_point_cache (county_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_szpc_town_id   ON stat_zone_point_cache (town_id)")
