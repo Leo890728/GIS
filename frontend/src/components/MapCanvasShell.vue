@@ -7,6 +7,7 @@ import { getBoundaryLayerIds, useMapLayers } from './map/useMapLayers'
 import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
 import { useMapRouteLayers } from './map/useMapRouteLayers'
 import SimulatorControlBar from '../features/simulator/SimulatorControlBar.vue'
+import AnalyticsDrawer from '../features/simulator/AnalyticsDrawer.vue'
 
 const basemapSourceId = 'basemap-source'
 const basemapLayerId = 'basemap-layer'
@@ -615,6 +616,11 @@ onBeforeUnmount(() => {
       @toggle-smooth="emit('simulator-toggle-smooth')"
       @select-segment="emit('simulator-select-segment', $event)"
       @stop="emit('simulator-stop')"
+    />
+
+    <AnalyticsDrawer
+      v-if="props.simulatorState?.active"
+      :simulator-state="props.simulatorState"
     />
   </section>
 </template>
