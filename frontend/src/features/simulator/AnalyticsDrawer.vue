@@ -51,6 +51,7 @@ const coverage = computed(() => props.simulatorState.coverage || {})
 const series = computed(() => coverage.value.series || [])
 const anomalies = computed(() => coverage.value.anomalies || [])
 const totalRegions = computed(() => coverage.value.totalRegions || 0)
+const regions = computed(() => coverage.value.regions || [])
 
 const currentCoverage = computed(() => {
   const s = series.value
@@ -180,6 +181,19 @@ const progressX = computed(() => {
           </li>
         </ul>
         <p v-else class="placeholder-note">目前視窗無覆蓋率異常。</p>
+      </section>
+
+      <section v-if="regions.length" class="card">
+        <p class="card-title">
+          Affected regions
+          <span class="badge">{{ regions.length }}</span>
+        </p>
+        <ul class="region-list">
+          <li v-for="r in regions" :key="r.code" class="region-row">
+            <span class="region-name">{{ r.name }}</span>
+            <span class="region-seen tnum">{{ fmtShort(r.lastSeen) }}</span>
+          </li>
+        </ul>
       </section>
     </div>
   </aside>
@@ -376,5 +390,32 @@ const progressX = computed(() => {
   font-size: 10px;
   color: var(--alert);
   font-weight: 600;
+}
+
+.region-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.region-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.region-name {
+  color: var(--text);
+}
+
+.region-seen {
+  color: var(--text-dim);
+  font-size: 10px;
 }
 </style>
