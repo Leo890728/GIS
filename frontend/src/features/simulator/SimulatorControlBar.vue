@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, LocateFixed, Pause, Play, Radio, SkipBack, SkipForward, X } from 'lucide-vue-next'
 
 const props = defineProps({
   simulatorState: {
@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'stop'])
+const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'toggle-live', 'toggle-follow', 'stop'])
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -207,6 +207,28 @@ const onTrackKeydown = (event) => {
     </div>
 
     <div class="sim-bar-right">
+      <button
+        class="sim-bar-btn live"
+        :class="{ active: simulatorState.mode === 'live' }"
+        type="button"
+        :aria-pressed="simulatorState.mode === 'live'"
+        title="Live mode"
+        @click="emit('toggle-live')"
+      >
+        <Radio :size="15" />
+      </button>
+      <button
+        class="sim-bar-btn"
+        :class="{ active: simulatorState.autoFollow }"
+        type="button"
+        :aria-pressed="simulatorState.autoFollow"
+        aria-label="Auto-follow"
+        title="Auto-follow"
+        @click="emit('toggle-follow')"
+      >
+        <LocateFixed :size="15" />
+      </button>
+
       <div class="sim-bar-speeds">
         <button
           v-for="speed in simulatorSpeeds"
@@ -286,6 +308,18 @@ const onTrackKeydown = (event) => {
   background: #2a4d7a;
   border-color: #5fa3e3;
   color: #eaf4ff;
+}
+
+.sim-bar-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-strong);
+  color: #eaf4ff;
+}
+
+.sim-bar-btn.live.active {
+  border-color: var(--alert);
+  background: #3a1a22;
+  color: #ffb3ad;
 }
 
 .sim-bar button:focus-visible,

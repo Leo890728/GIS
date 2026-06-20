@@ -81,6 +81,8 @@ const emit = defineEmits([
   'simulator-step',
   'simulator-toggle-smooth',
   'simulator-select-segment',
+  'simulator-toggle-live',
+  'simulator-toggle-follow',
   'simulator-stop'
 ])
 
@@ -524,6 +526,15 @@ watch(
   }
 )
 
+// Auto-follow: recenter on the simulator's current centroid (frame cadence).
+watch(
+  () => props.simulatorState?.followCenter,
+  (center) => {
+    if (!map.value || !props.simulatorState?.autoFollow || !Array.isArray(center)) return
+    map.value.easeTo({ center, duration: 600 })
+  }
+)
+
 onMounted(() => {
   createMap()
 })
@@ -615,6 +626,8 @@ onBeforeUnmount(() => {
       @step="emit('simulator-step', $event)"
       @toggle-smooth="emit('simulator-toggle-smooth')"
       @select-segment="emit('simulator-select-segment', $event)"
+      @toggle-live="emit('simulator-toggle-live')"
+      @toggle-follow="emit('simulator-toggle-follow')"
       @stop="emit('simulator-stop')"
     />
 

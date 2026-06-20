@@ -30,6 +30,9 @@ const createState = () => ({
   selectedSegmentIndex: -1,
   playFrom: null,
   playTo: null,
+  mode: 'history',
+  autoFollow: false,
+  followCenter: null,
   featureCount: 0,
   playing: false,
   speed: DEFAULT_SPEED,
@@ -66,6 +69,42 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let smoothTracks = []
   let lastSmoothRenderReal = 0
   let smoothAbort = null
+  let liveTimer = null
+
+  const stopLive = () => {
+    if (liveTimer) {
+      clearInterval(liveTimer)
+      liveTimer = null
+    }
+  }
+
+  const exitLive = () => {
+    if (state.mode === 'live') {
+      state.mode = 'history'
+      stopLive()
+    }
+  }
+
+  const centroidOf = (features) => {
+    let sx = 0
+    let sy = 0
+    let n = 0
+    for (const f of features || []) {
+      const c = f?.geometry?.coordinates
+      if (Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) {
+        sx += c[0]
+        sy += c[1]
+        n += 1
+      }
+    }
+    return n ? [sx / n, sy / n] : null
+  }
+
+  const maybeFollow = (features) => {
+    if (!state.autoFollow) return
+    const center = centroidOf(features)
+    if (center) state.followCenter = center
+  }
 
   const abortSmoothLoad = () => {
     if (smoothAbort) {
@@ -114,6 +153,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       if (sequence !== frameSequence) return
       dataLayers.setSimulatorGeoJson(styled)
       state.featureCount = Array.isArray(styled?.features) ? styled.features.length : 0
+      maybeFollow(styled?.features)
       state.error = ''
     } catch (error) {
       if (sequence !== frameSequence) return
@@ -197,6 +237,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     const styled = applyDataStyleHandler({ type: 'FeatureCollection', features }, layerEntry)
     dataLayers.setSimulatorGeoJson(styled)
     state.featureCount = features.length
+    maybeFollow(features)
   }
 
   const loadTracks = async () => {
@@ -294,6 +335,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const play = () => {
     if (!state.active || state.currentTime == null) return
+    exitLive()
     if (state.currentTime >= state.playTo) state.currentTime = state.playFrom
     state.playing = true
     lastTickReal = null
@@ -317,6 +359,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stepFrame = (direction) => {
     pause()
+    exitLive()
     const lo = state.playFrom ?? state.from
     const hi = state.playTo ?? state.to
     const frames = state.frames.filter((frame) => frame >= lo && frame <= hi)
@@ -332,6 +375,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   const setTime = (ms) => {
     if (!state.active || state.playFrom == null || state.playTo == null) return
     pause()
+    exitLive()
     const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
     state.currentTime = clamped
     if (state.smooth && smoothTracks.length) {
@@ -379,6 +423,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   const selectSegment = (index) => {
     if (!state.active) return
     pause()
+    exitLive()
     const segment = state.segments[index]
     if (segment) {
       state.selectedSegmentIndex = index
@@ -394,9 +439,70 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     renderCurrent(true)
   }
 
+  // --- Live mode -------------------------------------------------------------
+  // Pins the clock to the leading edge and polls for newly recorded captures.
+  const pollLive = async () => {
+    if (state.mode !== 'live' || !state.dataId) return
+    try {
+      const range = await fetchHistoryRange(apiBaseUrl, state.dataId)
+      const newTo = toMs(range?.to)
+      if (newTo == null) return
+      if (newTo > state.to) {
+        state.to = newTo
+        state.count = Number(range.count) || state.count
+        const framesResponse = await fetchHistoryFrames(apiBaseUrl, state.dataId)
+        if (Array.isArray(framesResponse?.frames)) {
+          state.frames = framesResponse.frames.map(toMs).filter((value) => value != null)
+        }
+        state.segments = deriveSegments()
+        loadCoverage()
+      }
+      // Keep the clock pinned to "now".
+      state.playFrom = state.from
+      state.playTo = state.to
+      state.currentTime = state.to
+      applyActiveFrame(true)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const startLive = () => {
+    stopLive()
+    const everyMs = Math.max(15000, (Number(state.intervalSeconds) || 60) * 1000)
+    liveTimer = setInterval(pollLive, everyMs)
+  }
+
+  const toggleLive = () => {
+    if (state.mode === 'live') {
+      exitLive()
+      return
+    }
+    pause()
+    // Live follows the leading edge as frames; smooth tracks would be stale.
+    abortSmoothLoad()
+    state.smoothing = false
+    state.smooth = false
+    smoothTracks = []
+    state.selectedSegmentIndex = -1
+    state.mode = 'live'
+    state.playFrom = state.from
+    state.playTo = state.to
+    state.currentTime = state.to
+    applyActiveFrame(true)
+    pollLive()
+    startLive()
+  }
+
+  const toggleAutoFollow = () => {
+    state.autoFollow = !state.autoFollow
+    if (state.autoFollow) renderCurrent(true) // emit an initial follow target
+  }
+
   const selectDataset = async (dataId) => {
     if (!dataId) return
     pause()
+    exitLive()
     state.loading = true
     state.error = ''
     try {
@@ -450,6 +556,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   const stop = () => {
     pause()
     abortSmoothLoad()
+    stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
     frameSequence += 1
     frameCache = new Map()
@@ -502,6 +609,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   onBeforeUnmount(() => {
     stopRaf()
     abortSmoothLoad()
+    stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
     window.removeEventListener('keydown', onGlobalKeydown)
   })
@@ -517,6 +625,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     stepSimulatorFrame: stepFrame,
     toggleSimulatorSmooth: toggleSmooth,
     selectSimulatorSegment: selectSegment,
+    toggleSimulatorLive: toggleLive,
+    toggleSimulatorAutoFollow: toggleAutoFollow,
     stopSimulator: stop
   }
 }

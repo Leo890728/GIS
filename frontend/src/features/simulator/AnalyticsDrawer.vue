@@ -126,6 +126,12 @@ const progressX = computed(() => {
       <section class="card">
         <p class="card-title">Playback</p>
         <div class="stat-row">
+          <span class="stat-label">Mode</span>
+          <span class="stat-value" :class="{ live: simulatorState.mode === 'live' }">
+            {{ simulatorState.mode === 'live' ? '● LIVE' : 'History' }}
+          </span>
+        </div>
+        <div class="stat-row">
           <span class="stat-label">Speed</span>
           <span class="stat-value tnum">{{ simulatorState.speed }}×</span>
         </div>
@@ -302,6 +308,10 @@ const progressX = computed(() => {
   font-weight: 600;
   color: var(--accent);
   text-align: right;
+}
+
+.stat-value.live {
+  color: var(--alert);
 }
 
 .placeholder-note {

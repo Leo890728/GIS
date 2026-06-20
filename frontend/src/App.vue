@@ -49,6 +49,8 @@ const {
   stepSimulatorFrame,
   toggleSimulatorSmooth,
   selectSimulatorSegment,
+  toggleSimulatorLive,
+  toggleSimulatorAutoFollow,
   stopSimulator
 } = useSimulator(API_BASE_URL, {
   getSimulatorCandidates,
@@ -169,6 +171,8 @@ const handleToggleRouteLayer = (layerKey) => {
         @simulator-step="stepSimulatorFrame"
         @simulator-toggle-smooth="toggleSimulatorSmooth"
         @simulator-select-segment="selectSimulatorSegment"
+        @simulator-toggle-live="toggleSimulatorLive"
+        @simulator-toggle-follow="toggleSimulatorAutoFollow"
         @simulator-stop="stopSimulator"
       />
     </main>
