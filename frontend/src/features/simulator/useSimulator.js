@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, reactive } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { applyDataStyleHandler } from '../data/styleHandlers'
 import { fetchHistoryAt, fetchHistoryCoverage, fetchHistoryFrames, fetchHistoryRange, streamHistoryTrack } from './simulatorApi'
 
@@ -460,10 +460,50 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     Object.assign(state, createState())
   }
 
+  // Global transport shortcuts (active only during playback; ignored while a
+  // form control or the timeline slider has focus so it doesn't double-fire).
+  const SHORTCUT_SKIP_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'])
+  const onGlobalKeydown = (event) => {
+    if (!state.active) return
+    const target = event.target
+    if (
+      target &&
+      (SHORTCUT_SKIP_TAGS.has(target.tagName) ||
+        target.isContentEditable ||
+        target.getAttribute?.('role') === 'slider')
+    ) {
+      return
+    }
+    switch (event.key) {
+      case ' ':
+      case 'Spacebar':
+        togglePlay()
+        break
+      case 'ArrowLeft':
+        stepFrame(-1)
+        break
+      case 'ArrowRight':
+        stepFrame(1)
+        break
+      case 'Home':
+        setTime(state.playFrom)
+        break
+      case 'End':
+        setTime(state.playTo)
+        break
+      default:
+        return
+    }
+    event.preventDefault()
+  }
+
+  onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
+
   onBeforeUnmount(() => {
     stopRaf()
     abortSmoothLoad()
     if (debounceTimer) clearTimeout(debounceTimer)
+    window.removeEventListener('keydown', onGlobalKeydown)
   })
 
   return {
