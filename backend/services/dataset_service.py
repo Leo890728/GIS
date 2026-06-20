@@ -4,9 +4,13 @@ import hashlib
 import httpx
 
 from backend.data_sources import ADAPTER_REGISTRY
-from backend.services.history_track_service import build_entity_tracks
+from backend.geo.osrm import DEFAULT_MAX_URL_LENGTH, DEFAULT_MAX_WAYPOINTS_PER_CALL
+from backend.services.history_track_service import DEFAULT_OSRM_CONCURRENCY, build_entity_tracks
 from backend.services.point_aggregate import aggregate_grouped
 from backend.services.point_query import query_points
+
+# Smooth tracks split into a new segment when a gap exceeds this many poll cycles.
+HISTORY_GAP_FACTOR = 4
 
 
 def utc_now():
@@ -27,14 +31,14 @@ def to_float(value):
 
 
 class DatasetService:
-    def __init__(self, sources, fetcher=None, now_func=None, adapters=None, cache_db=None, history_db=None, osrm_route_fetcher=None):
+    def __init__(self, sources, fetcher=None, now_func=None, adapters=None, cache_db=None, history_db=None, osrm_leg_router=None):
         self.sources = sources or {}
         self.fetcher = fetcher or self._default_fetcher
         self.now_func = now_func or utc_now
         self.adapters = adapters or ADAPTER_REGISTRY
         self.cache_db = cache_db
         self.history_db = history_db
-        self.osrm_route_fetcher = osrm_route_fetcher
+        self.osrm_leg_router = osrm_leg_router
         self._osrm_leg_cache = {}
         self._http_client = None
         self._cache = {}
@@ -166,11 +170,14 @@ class DatasetService:
         key_fields = (source.get("history") or {}).get("key") or []
         return self.history_db.state_at(data_id, t, key_fields)
 
-    def history_tracks(self, data_id, frm=None, to=None):
+    def history_tracks(self, data_id, frm=None, to=None, progress_cb=None):
         source = self._require_history(data_id)
         history = source.get("history") or {}
         key_fields = history.get("key") or []
         osrm = history.get("osrm") or {}
+        # A gap longer than a few poll cycles means recording was interrupted.
+        refresh = int(source.get("refresh_seconds", 600) or 600)
+        max_gap_seconds = refresh * HISTORY_GAP_FACTOR
         return build_entity_tracks(
             self.history_db,
             data_id,
@@ -179,8 +186,13 @@ class DatasetService:
             to,
             osrm_base_url=osrm.get("base_url") or "http://localhost:5001",
             profile=osrm.get("profile") or "driving",
-            route_fetcher=self.osrm_route_fetcher,
+            leg_router=self.osrm_leg_router,
             leg_cache=self._osrm_leg_cache,
+            max_gap_seconds=max_gap_seconds,
+            max_concurrency=int(osrm.get("concurrency") or DEFAULT_OSRM_CONCURRENCY),
+            max_waypoints_per_call=int(osrm.get("max_waypoints") or DEFAULT_MAX_WAYPOINTS_PER_CALL),
+            max_url_length=int(osrm.get("max_url_length") or DEFAULT_MAX_URL_LENGTH),
+            progress_cb=progress_cb,
         )
 
     def _get_source(self, data_id):

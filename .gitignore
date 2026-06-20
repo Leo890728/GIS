@@ -4,6 +4,9 @@
 __pycache__/
 *.py[cod]
 
+# Stray npm global prefix accidentally created inside the repo
+Users/
+
 # Design
 .design/
 

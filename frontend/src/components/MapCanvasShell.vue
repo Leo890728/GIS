@@ -79,6 +79,7 @@ const emit = defineEmits([
   'simulator-set-speed',
   'simulator-step',
   'simulator-toggle-smooth',
+  'simulator-select-segment',
   'simulator-stop'
 ])
 
@@ -612,6 +613,7 @@ onBeforeUnmount(() => {
       @set-speed="emit('simulator-set-speed', $event)"
       @step="emit('simulator-step', $event)"
       @toggle-smooth="emit('simulator-toggle-smooth')"
+      @select-segment="emit('simulator-select-segment', $event)"
       @stop="emit('simulator-stop')"
     />
   </section>

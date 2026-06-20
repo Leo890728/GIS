@@ -38,6 +38,11 @@ HISTORY_DB_PATH = BACKEND_DIR / "data" / "history.sqlite"
 HISTORY_OSRM = {
     "base_url": os.getenv("HISTORY_OSRM_URL", "http://localhost:5001"),
     "profile": os.getenv("HISTORY_OSRM_PROFILE", "driving"),
+    # Number of OSRM route requests issued in parallel when building tracks.
+    "concurrency": int(os.getenv("HISTORY_OSRM_CONCURRENCY", "8")),
+    # Upper bounds on a single OSRM route request (waypoints are chunked to fit).
+    "max_waypoints": int(os.getenv("HISTORY_OSRM_MAX_WAYPOINTS", "1000")),
+    "max_url_length": int(os.getenv("HISTORY_OSRM_MAX_URL_LENGTH", "7800")),
 }
 SPATIALITE_EXTENSION_PATH = os.getenv(
     "SPATIALITE_EXTENSION_PATH",

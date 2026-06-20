@@ -74,4 +74,4 @@ def create_app(config_overrides=None):
 if __name__ == "__main__":
     os.environ["RUN_DEV_SERVER"] = "1"
     app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)

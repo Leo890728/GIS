@@ -1,4 +1,8 @@
-from flask import Blueprint, abort, current_app, request
+import json
+import queue
+import threading
+
+from flask import Blueprint, Response, abort, current_app, request, stream_with_context
 
 from backend.schemas.data_points import parse_timestamp
 from backend.services.dataset_service import iso_utc
@@ -81,3 +85,63 @@ def history_track(data_id):
         "to": iso_utc(to),
         "tracks": tracks,
     }
+
+
+def _sse(event, payload):
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+@bp.get("/data/history/<data_id>/track/stream")
+def history_track_stream(data_id):
+    """Same payload as /track, but streamed as Server-Sent Events.
+
+    Emits `progress` events ({done, total}) as each entity's road-following
+    track is built, then a final `result` event carrying the full track payload
+    (or an `error` event). Lets the frontend show OSRM smoothing progress.
+    """
+    service = _service()
+    frm = _parse_param("from")
+    to = _parse_param("to")
+
+    events = queue.Queue()
+    done = object()
+
+    def on_progress(built, total):
+        events.put(_sse("progress", {"done": built, "total": total}))
+
+    def worker():
+        try:
+            tracks = service.history_tracks(data_id, frm, to, progress_cb=on_progress)
+            events.put(
+                _sse(
+                    "result",
+                    {
+                        "dataId": data_id,
+                        "from": iso_utc(frm),
+                        "to": iso_utc(to),
+                        "tracks": tracks,
+                    },
+                )
+            )
+        except KeyError as err:
+            events.put(_sse("error", {"message": str(err)}))
+        except Exception:  # pragma: no cover - defensive: surface failure to client
+            events.put(_sse("error", {"message": "Failed to build tracks"}))
+        finally:
+            events.put(done)
+
+    @stream_with_context
+    def generate():
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        while True:
+            item = events.get()
+            if item is done:
+                break
+            yield item
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

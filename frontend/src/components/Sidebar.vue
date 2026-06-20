@@ -120,6 +120,7 @@ const emit = defineEmits([
   'set-simulator-speed',
   'step-simulator',
   'toggle-simulator-smooth',
+  'select-simulator-segment',
   'stop-simulator'
 ])
 
@@ -345,6 +346,7 @@ const drawingTools = [
         @set-speed="emit('set-simulator-speed', $event)"
         @step="emit('step-simulator', $event)"
         @toggle-smooth="emit('toggle-simulator-smooth')"
+        @select-segment="emit('select-simulator-segment', $event)"
         @stop="emit('stop-simulator')"
       />
 

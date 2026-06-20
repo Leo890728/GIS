@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { Pause, Play, SkipBack, SkipForward, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward, X } from 'lucide-vue-next'
 
 const props = defineProps({
   simulatorState: {
@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'stop'])
+const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'stop'])
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -29,6 +29,27 @@ const fmt = (ms) => {
 }
 
 const sliderStep = computed(() => Math.max(1000, (Number(props.simulatorState.intervalSeconds) || 60) * 1000))
+
+const smoothDone = computed(() => props.simulatorState.smoothProgress?.done ?? 0)
+const smoothTotal = computed(() => props.simulatorState.smoothProgress?.total ?? 0)
+const smoothPct = computed(() => (smoothTotal.value ? Math.round((smoothDone.value / smoothTotal.value) * 100) : 0))
+
+const playFrom = computed(() => props.simulatorState.playFrom ?? props.simulatorState.from)
+const playTo = computed(() => props.simulatorState.playTo ?? props.simulatorState.to)
+const segments = computed(() => props.simulatorState.segments ?? [])
+
+// Session stepper cycles through: All (-1), then each session 0..n-1.
+const sessionOrder = computed(() => [-1, ...segments.value.map((_, i) => i)])
+const sessionLabel = computed(() => {
+  const index = props.simulatorState.selectedSegmentIndex
+  return index === -1 ? 'All' : `${index + 1}/${segments.value.length}`
+})
+const stepSession = (direction) => {
+  const order = sessionOrder.value
+  const pos = order.indexOf(props.simulatorState.selectedSegmentIndex)
+  const next = Math.min(order.length - 1, Math.max(0, pos + direction))
+  emit('select-segment', order[next])
+}
 </script>
 
 <template>
@@ -51,18 +72,28 @@ const sliderStep = computed(() => Math.max(1000, (Number(props.simulatorState.in
       </button>
     </div>
 
+    <div v-if="segments.length > 1" class="sim-bar-session">
+      <button class="sim-bar-btn" type="button" aria-label="Previous session" @click="stepSession(-1)">
+        <ChevronLeft :size="16" />
+      </button>
+      <span class="sim-bar-session-label" title="Recording session">{{ sessionLabel }}</span>
+      <button class="sim-bar-btn" type="button" aria-label="Next session" @click="stepSession(1)">
+        <ChevronRight :size="16" />
+      </button>
+    </div>
+
     <div class="sim-bar-timeline">
       <span class="sim-bar-time">{{ fmt(simulatorState.currentTime) }}</span>
       <input
         class="sim-bar-slider"
         type="range"
-        :min="simulatorState.from"
-        :max="simulatorState.to"
+        :min="playFrom"
+        :max="playTo"
         :step="sliderStep"
-        :value="simulatorState.currentTime ?? simulatorState.to"
+        :value="simulatorState.currentTime ?? playTo"
         @input="emit('set-time', Number($event.target.value))"
       />
-      <span class="sim-bar-bound">{{ fmt(simulatorState.to) }}</span>
+      <span class="sim-bar-bound">{{ fmt(playTo) }}</span>
     </div>
 
     <div class="sim-bar-right">
@@ -80,14 +111,22 @@ const sliderStep = computed(() => Math.max(1000, (Number(props.simulatorState.in
       </div>
       <button
         class="sim-bar-smooth"
-        :class="{ active: simulatorState.smooth }"
+        :class="{ active: simulatorState.smooth, busy: simulatorState.smoothing }"
         type="button"
         title="Road smoothing (OSRM)"
         @click="emit('toggle-smooth')"
       >
-        OSRM
+        <span
+          v-if="simulatorState.smoothing"
+          class="sim-bar-smooth-fill"
+          :class="{ indeterminate: !smoothTotal }"
+          :style="smoothTotal ? { width: smoothPct + '%' } : null"
+        ></span>
+        <span class="sim-bar-smooth-label">
+          {{ simulatorState.smoothing && smoothTotal ? smoothPct + '%' : 'OSRM' }}
+        </span>
       </button>
-      <span v-if="simulatorState.loading" class="sim-bar-loading">…</span>
+      <span v-if="simulatorState.loading && !simulatorState.smoothing" class="sim-bar-loading">…</span>
       <button class="sim-bar-exit" type="button" aria-label="Exit playback" @click="emit('stop')">
         <X :size="16" />
       </button>
@@ -137,6 +176,21 @@ const sliderStep = computed(() => Math.max(1000, (Number(props.simulatorState.in
   background: #2a4d7a;
   border-color: #5fa3e3;
   color: #eaf4ff;
+}
+
+.sim-bar-session {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sim-bar-session-label {
+  min-width: 30px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #cfe0fb;
+  white-space: nowrap;
 }
 
 .sim-bar-timeline {
@@ -195,6 +249,8 @@ const sliderStep = computed(() => Math.max(1000, (Number(props.simulatorState.in
 }
 
 .sim-bar-smooth {
+  position: relative;
+  overflow: hidden;
   border-radius: 6px;
   border: 1px solid #2a3a54;
   background: #1a2940;
@@ -202,6 +258,7 @@ const sliderStep = computed(() => Math.max(1000, (Number(props.simulatorState.in
   font-size: 11px;
   font-weight: 700;
   padding: 4px 8px;
+  min-width: 44px;
   cursor: pointer;
 }
 
@@ -209,6 +266,31 @@ const sliderStep = computed(() => Math.max(1000, (Number(props.simulatorState.in
   border-color: #5fa3e3;
   background: #2a4d7a;
   color: #eaf4ff;
+}
+
+.sim-bar-smooth.busy {
+  border-color: #5fa3e3;
+}
+
+.sim-bar-smooth-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgb(95 163 227 / 45%);
+  transition: width 0.2s ease;
+}
+
+.sim-bar-smooth-fill.indeterminate {
+  width: 40%;
+  animation: sim-bar-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes sim-bar-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.sim-bar-smooth-label {
+  position: relative;
 }
 
 .sim-bar-loading {

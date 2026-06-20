@@ -48,6 +48,7 @@ const {
   setSimulatorSpeed,
   stepSimulatorFrame,
   toggleSimulatorSmooth,
+  selectSimulatorSegment,
   stopSimulator
 } = useSimulator(API_BASE_URL, {
   getSimulatorCandidates,
@@ -139,6 +140,7 @@ const handleToggleRouteLayer = (layerKey) => {
       @set-simulator-speed="setSimulatorSpeed"
       @step-simulator="stepSimulatorFrame"
       @toggle-simulator-smooth="toggleSimulatorSmooth"
+      @select-simulator-segment="selectSimulatorSegment"
       @stop-simulator="stopSimulator"
       @toggle-collapse="isSidebarCollapsed = !isSidebarCollapsed"
     />
@@ -166,6 +168,7 @@ const handleToggleRouteLayer = (layerKey) => {
         @simulator-set-speed="setSimulatorSpeed"
         @simulator-step="stepSimulatorFrame"
         @simulator-toggle-smooth="toggleSimulatorSmooth"
+        @simulator-select-segment="selectSimulatorSegment"
         @simulator-stop="stopSimulator"
       />
     </main>

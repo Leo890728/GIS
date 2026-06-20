@@ -1,11 +1,15 @@
 import { computed, onBeforeUnmount, reactive } from 'vue'
 import { applyDataStyleHandler } from '../data/styleHandlers'
-import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, fetchHistoryTrack } from './simulatorApi'
+import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, streamHistoryTrack } from './simulatorApi'
 
 const SMOOTH_RENDER_INTERVAL_MS = 40
 
 const SPEED_PRESETS = [1, 10, 30, 60]
 const DEFAULT_SPEED = 30
+
+// A gap between captures longer than this many poll cycles is treated as a
+// recording interruption that splits the timeline into separate sessions.
+const GLOBAL_GAP_FACTOR = 4
 
 const toMs = (iso) => {
   if (!iso) return null
@@ -22,10 +26,16 @@ const createState = () => ({
   intervalSeconds: 60,
   currentTime: null,
   frames: [],
+  segments: [],
+  selectedSegmentIndex: -1,
+  playFrom: null,
+  playTo: null,
   featureCount: 0,
   playing: false,
   speed: DEFAULT_SPEED,
   smooth: false,
+  smoothing: false,
+  smoothProgress: { done: 0, total: 0 },
   loading: false,
   error: ''
 })
@@ -54,6 +64,14 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let debounceTimer = null
   let smoothTracks = []
   let lastSmoothRenderReal = 0
+  let smoothAbort = null
+
+  const abortSmoothLoad = () => {
+    if (smoothAbort) {
+      smoothAbort.abort()
+      smoothAbort = null
+    }
+  }
 
   const stopRaf = () => {
     if (rafId) cancelAnimationFrame(rafId)
@@ -115,7 +133,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   // --- Smooth (OSRM road-following) playback ---------------------------------
 
-  const interpolateAt = (path, ms) => {
+  const interpolateInPath = (path, ms) => {
     if (!path.length) return null
     if (ms <= path[0].tMs) return [path[0].lng, path[0].lat]
     const last = path[path.length - 1]
@@ -132,6 +150,27 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     return [last.lng, last.lat]
   }
 
+  // Segment-aware: interpolate within a segment; during a between-segment gap
+  // (a recording interruption) hold the last known position instead of sliding.
+  const interpolateSegmentsAt = (segments, ms) => {
+    if (!segments.length) return null
+    const firstPt = segments[0].path[0]
+    if (ms <= firstPt.tMs) return [firstPt.lng, firstPt.lat]
+    for (let i = 0; i < segments.length; i += 1) {
+      const seg = segments[i]
+      const lastPt = seg.path[seg.path.length - 1]
+      if (ms <= lastPt.tMs) {
+        if (ms >= seg.path[0].tMs) return interpolateInPath(seg.path, ms)
+        const prev = segments[i - 1].path // gap before this segment -> hold prev end
+        const held = prev[prev.length - 1]
+        return [held.lng, held.lat]
+      }
+    }
+    const tail = segments[segments.length - 1].path
+    const lp = tail[tail.length - 1]
+    return [lp.lng, lp.lat]
+  }
+
   const activePropertiesAt = (samples, ms) => {
     if (!samples || !samples.length) return {}
     let chosen = samples[0].properties
@@ -146,7 +185,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!smoothTracks.length) return
     const features = []
     for (const track of smoothTracks) {
-      const position = interpolateAt(track.path, ms)
+      const position = interpolateSegmentsAt(track.segments, ms)
       if (!position) continue
       features.push({
         type: 'Feature',
@@ -161,28 +200,47 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const loadTracks = async () => {
     if (!state.dataId) return
+    abortSmoothLoad()
+    smoothAbort = new AbortController()
+    const controller = smoothAbort
     state.loading = true
+    state.smoothing = true
+    state.smoothProgress = { done: 0, total: 0 }
     try {
-      const response = await fetchHistoryTrack(apiBaseUrl, state.dataId, state.from, state.to)
+      const response = await streamHistoryTrack(apiBaseUrl, state.dataId, state.from, state.to, {
+        signal: controller.signal,
+        onProgress: ({ done, total }) => {
+          state.smoothProgress = { done: Number(done) || 0, total: Number(total) || 0 }
+        }
+      })
       smoothTracks = (response?.tracks || [])
         .map((track) => ({
           key: track.key,
           properties: track.properties || {},
-          path: (track.path || [])
-            .map((point) => ({ tMs: new Date(point.t).getTime(), lng: point.lng, lat: point.lat }))
-            .filter((point) => Number.isFinite(point.tMs)),
+          segments: (track.segments || [])
+            .map((seg) => ({
+              path: (seg.path || [])
+                .map((point) => ({ tMs: new Date(point.t).getTime(), lng: point.lng, lat: point.lat }))
+                .filter((point) => Number.isFinite(point.tMs))
+            }))
+            .filter((seg) => seg.path.length > 0),
           samples: (track.samples || [])
             .map((sample) => ({ tMs: new Date(sample.t).getTime(), properties: sample.properties || {} }))
             .filter((sample) => Number.isFinite(sample.tMs))
         }))
-        .filter((track) => track.path.length > 0)
+        .filter((track) => track.segments.length > 0)
       renderSmooth(state.currentTime)
       state.error = ''
     } catch (error) {
+      if (error?.name === 'AbortError' || controller.signal.aborted) return
       console.error(error)
       state.error = 'Failed to load smooth tracks.'
     } finally {
-      state.loading = false
+      if (smoothAbort === controller) smoothAbort = null
+      if (!controller.signal.aborted) {
+        state.smoothing = false
+        state.loading = false
+      }
     }
   }
 
@@ -196,6 +254,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (state.smooth) {
       await loadTracks()
     } else {
+      abortSmoothLoad()
+      state.smoothing = false
       smoothTracks = []
       applyActiveFrame(true)
     }
@@ -213,8 +273,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     lastTickReal = nowReal
 
     const next = state.currentTime + deltaReal * state.speed
-    if (next >= state.to) {
-      state.currentTime = state.to
+    if (next >= state.playTo) {
+      state.currentTime = state.playTo
       renderCurrent()
       pause()
       return
@@ -233,7 +293,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const play = () => {
     if (!state.active || state.currentTime == null) return
-    if (state.currentTime >= state.to) state.currentTime = state.from
+    if (state.currentTime >= state.playTo) state.currentTime = state.playFrom
     state.playing = true
     lastTickReal = null
     rafId = requestAnimationFrame(tick)
@@ -256,19 +316,22 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stepFrame = (direction) => {
     pause()
-    if (!state.frames.length) return
-    let index = state.frames.indexOf(activeFrameMs)
-    if (index < 0) index = state.frames.findIndex((frame) => frame >= state.currentTime)
-    if (index < 0) index = state.frames.length - 1
-    index = Math.min(state.frames.length - 1, Math.max(0, index + (direction >= 0 ? 1 : -1)))
-    state.currentTime = state.frames[index]
+    const lo = state.playFrom ?? state.from
+    const hi = state.playTo ?? state.to
+    const frames = state.frames.filter((frame) => frame >= lo && frame <= hi)
+    if (!frames.length) return
+    let index = frames.indexOf(activeFrameMs)
+    if (index < 0) index = frames.findIndex((frame) => frame >= state.currentTime)
+    if (index < 0) index = frames.length - 1
+    index = Math.min(frames.length - 1, Math.max(0, index + (direction >= 0 ? 1 : -1)))
+    state.currentTime = frames[index]
     renderCurrent(true)
   }
 
   const setTime = (ms) => {
-    if (!state.active || state.from == null || state.to == null) return
+    if (!state.active || state.playFrom == null || state.playTo == null) return
     pause()
-    const clamped = Math.min(state.to, Math.max(state.from, Number(ms)))
+    const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
     state.currentTime = clamped
     if (state.smooth && smoothTracks.length) {
       renderSmooth(clamped)
@@ -276,6 +339,43 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     }
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => applyActiveFrame(), 80)
+  }
+
+  // Split the capture timeline into recording sessions on large gaps.
+  const deriveSegments = () => {
+    const frames = state.frames
+    if (!frames.length) return []
+    const gapMs = (Number(state.intervalSeconds) || 60) * 1000 * GLOBAL_GAP_FACTOR
+    const segments = []
+    let from = frames[0]
+    let prev = frames[0]
+    for (let i = 1; i < frames.length; i += 1) {
+      if (frames[i] - prev > gapMs) {
+        segments.push({ from, to: prev })
+        from = frames[i]
+      }
+      prev = frames[i]
+    }
+    segments.push({ from, to: prev })
+    return segments
+  }
+
+  const selectSegment = (index) => {
+    if (!state.active) return
+    pause()
+    const segment = state.segments[index]
+    if (segment) {
+      state.selectedSegmentIndex = index
+      state.playFrom = segment.from
+      state.playTo = segment.to
+      state.currentTime = segment.from
+    } else {
+      state.selectedSegmentIndex = -1
+      state.playFrom = state.from
+      state.playTo = state.to
+      state.currentTime = Math.min(state.to, Math.max(state.from, state.currentTime ?? state.from))
+    }
+    renderCurrent(true)
   }
 
   const selectDataset = async (dataId) => {
@@ -311,6 +411,10 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.frames = Array.isArray(framesResponse?.frames)
         ? framesResponse.frames.map(toMs).filter((value) => value != null)
         : []
+      state.segments = deriveSegments()
+      state.selectedSegmentIndex = -1
+      state.playFrom = state.from
+      state.playTo = state.to
       state.currentTime = state.to
       if (state.smooth) {
         await loadTracks()
@@ -327,6 +431,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stop = () => {
     pause()
+    abortSmoothLoad()
     if (debounceTimer) clearTimeout(debounceTimer)
     frameSequence += 1
     frameCache = new Map()
@@ -339,6 +444,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   onBeforeUnmount(() => {
     stopRaf()
+    abortSmoothLoad()
     if (debounceTimer) clearTimeout(debounceTimer)
   })
 
@@ -352,6 +458,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     setSimulatorSpeed: setSpeed,
     stepSimulatorFrame: stepFrame,
     toggleSimulatorSmooth: toggleSmooth,
+    selectSimulatorSegment: selectSegment,
     stopSimulator: stop
   }
 }

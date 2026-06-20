@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -132,6 +133,54 @@ class HistoryApiTestCase(unittest.TestCase):
 
     def test_at_rejects_bad_timestamp(self):
         self.assertEqual(400, self.client.get("/data/history/ds/at?t=not-a-time").status_code)
+
+    @staticmethod
+    def _parse_sse(body):
+        events = []
+        for block in body.split("\n\n"):
+            if not block.strip():
+                continue
+            event = "message"
+            data_lines = []
+            for line in block.splitlines():
+                if line.startswith("event:"):
+                    event = line.split(":", 1)[1].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line.split(":", 1)[1].strip())
+            events.append((event, json.loads("\n".join(data_lines)) if data_lines else None))
+        return events
+
+    def test_track_stream_emits_progress_then_result(self):
+        self._build_three_captures()
+        # Inject a router so the stream never touches a real OSRM instance.
+        self.service.osrm_leg_router = lambda b, p, coords: [
+            [list(coords[i]), list(coords[i + 1])] for i in range(len(coords) - 1)
+        ]
+
+        resp = self.client.get("/data/history/ds/track/stream")
+        self.assertEqual(200, resp.status_code)
+        self.assertEqual("text/event-stream", resp.mimetype)
+
+        events = self._parse_sse(resp.get_data(as_text=True))
+        kinds = [kind for kind, _ in events]
+        self.assertIn("progress", kinds)
+        self.assertEqual("result", kinds[-1])
+
+        # Progress is monotonic and ends at total.
+        progress = [payload for kind, payload in events if kind == "progress"]
+        self.assertEqual(progress[0]["done"], 0)
+        self.assertEqual(progress[-1]["done"], progress[-1]["total"])
+
+        result = events[-1][1]
+        self.assertEqual("ds", result["dataId"])
+        self.assertEqual({"A", "B"}, {t["key"] for t in result["tracks"]})
+
+    def test_track_stream_unknown_dataset_emits_error(self):
+        resp = self.client.get("/data/history/nope/track/stream")
+        # The stream itself opens 200; the failure is delivered as an error event.
+        self.assertEqual(200, resp.status_code)
+        events = self._parse_sse(resp.get_data(as_text=True))
+        self.assertEqual("error", events[-1][0])
 
 
 if __name__ == "__main__":
