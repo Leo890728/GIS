@@ -11,6 +11,10 @@ const DEFAULT_SPEED = 30
 // recording interruption that splits the timeline into separate sessions.
 const GLOBAL_GAP_FACTOR = 4
 
+// Compare-mode overlay colors (A = blue, B = orange).
+const COMPARE_A_COLOR = '#5fa3e3'
+const COMPARE_B_COLOR = '#f2994a'
+
 const toMs = (iso) => {
   if (!iso) return null
   const ms = new Date(iso).getTime()
@@ -33,6 +37,8 @@ const createState = () => ({
   mode: 'history',
   autoFollow: false,
   followCenter: null,
+  compare: { aTime: null, bTime: null },
+  compareGeoJson: null,
   featureCount: 0,
   playing: false,
   speed: DEFAULT_SPEED,
@@ -286,12 +292,76 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     }
   }
 
+  // --- Compare mode (two time cursors overlaid on one map) -------------------
+  const renderCompare = async () => {
+    if (state.mode !== 'compare') return
+    const sequence = ++frameSequence
+    const aMs = nearestFrameMs(state.compare.aTime)
+    const bMs = nearestFrameMs(state.compare.bTime)
+    try {
+      const [aFc, bFc] = await Promise.all([getFrame(aMs), getFrame(bMs)])
+      if (sequence !== frameSequence) return
+      const tag = (fc, color, label) =>
+        (fc?.features || []).map((f) => ({
+          ...f,
+          properties: { ...f.properties, __cmpColor: color, __cmp: label }
+        }))
+      const features = [...tag(aFc, COMPARE_A_COLOR, 'A'), ...tag(bFc, COMPARE_B_COLOR, 'B')]
+      state.compareGeoJson = { type: 'FeatureCollection', features }
+      state.featureCount = features.length
+      state.error = ''
+    } catch (error) {
+      if (sequence !== frameSequence) return
+      console.error(error)
+      state.error = 'Failed to load comparison.'
+    }
+  }
+
   const renderCurrent = (force = false) => {
+    if (state.mode === 'compare') {
+      renderCompare()
+      return
+    }
     if (state.smooth && smoothTracks.length) renderSmooth(state.currentTime)
     else applyActiveFrame(force)
   }
 
+  const exitCompare = () => {
+    if (state.mode !== 'compare') return
+    state.mode = 'history'
+    state.compareGeoJson = null
+    applyActiveFrame(true)
+  }
+
+  const toggleCompare = () => {
+    if (state.mode === 'compare') {
+      exitCompare()
+      return
+    }
+    pause()
+    exitLive()
+    abortSmoothLoad()
+    state.smoothing = false
+    state.smooth = false
+    smoothTracks = []
+    state.mode = 'compare'
+    state.compare = { aTime: state.playFrom ?? state.from, bTime: state.playTo ?? state.to }
+    dataLayers.setSimulatorGeoJson({ type: 'FeatureCollection', features: [] }) // clear takeover layer
+    renderCompare()
+  }
+
+  const setCompareTime = (which, ms) => {
+    if (state.mode !== 'compare' || state.from == null) return
+    const clamped = Math.min(state.to, Math.max(state.from, Number(ms)))
+    state.compare = {
+      ...state.compare,
+      [which === 'b' ? 'bTime' : 'aTime']: clamped
+    }
+    renderCompare()
+  }
+
   const setSmooth = async (enabled) => {
+    if (state.mode === 'compare') return
     state.smooth = enabled === true
     if (state.smooth) {
       await loadTracks()
@@ -335,6 +405,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const play = () => {
     if (!state.active || state.currentTime == null) return
+    if (state.mode === 'compare') return
     exitLive()
     if (state.currentTime >= state.playTo) state.currentTime = state.playFrom
     state.playing = true
@@ -359,6 +430,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stepFrame = (direction) => {
     pause()
+    if (state.mode === 'compare') return
     exitLive()
     const lo = state.playFrom ?? state.from
     const hi = state.playTo ?? state.to
@@ -374,6 +446,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const setTime = (ms) => {
     if (!state.active || state.playFrom == null || state.playTo == null) return
+    if (state.mode === 'compare') return
     pause()
     exitLive()
     const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
@@ -424,6 +497,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!state.active) return
     pause()
     exitLive()
+    exitCompare()
     const segment = state.segments[index]
     if (segment) {
       state.selectedSegmentIndex = index
@@ -484,6 +558,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     state.smoothing = false
     state.smooth = false
     smoothTracks = []
+    state.compareGeoJson = null
     state.selectedSegmentIndex = -1
     state.mode = 'live'
     state.playFrom = state.from
@@ -505,6 +580,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!state.active || state.from == null || state.to == null) return
     pause()
     exitLive()
+    exitCompare()
     const minSpan = Math.max((Number(state.intervalSeconds) || 60) * 1000 * 2, 1000)
     let lo = Math.max(state.from, Math.min(Number(fromMs), Number(toMs)))
     let hi = Math.min(state.to, Math.max(Number(fromMs), Number(toMs)))
@@ -560,6 +636,9 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.playFrom = state.from
       state.playTo = state.to
       state.currentTime = state.to
+      state.mode = 'history'
+      state.compare = { aTime: null, bTime: null }
+      state.compareGeoJson = null
       state.coverage = { totalRegions: 0, series: [], anomalies: [], regions: [] }
       loadCoverage() // fire-and-forget; drawer fills in when ready
       if (state.smooth) {
@@ -650,6 +729,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     setSimulatorWindow: setWindow,
     toggleSimulatorLive: toggleLive,
     toggleSimulatorAutoFollow: toggleAutoFollow,
+    toggleSimulatorCompare: toggleCompare,
+    setSimulatorCompareTime: setCompareTime,
     stopSimulator: stop
   }
 }

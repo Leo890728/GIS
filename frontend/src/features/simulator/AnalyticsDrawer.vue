@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { BarChart3, ChevronRight, TriangleAlert } from 'lucide-vue-next'
+import { BarChart3, ChevronRight, Columns2, TriangleAlert } from 'lucide-vue-next'
 
 const props = defineProps({
   simulatorState: {
@@ -44,6 +44,17 @@ const sessionLabel = computed(() => {
 const smoothPct = computed(() => {
   const p = props.simulatorState.smoothProgress
   return p?.total ? Math.round((p.done / p.total) * 100) : 0
+})
+
+const isCompare = computed(() => props.simulatorState.mode === 'compare')
+const compareCounts = computed(() => {
+  let a = 0
+  let b = 0
+  for (const f of props.simulatorState.compareGeoJson?.features || []) {
+    if (f.properties?.__cmp === 'B') b += 1
+    else a += 1
+  }
+  return { a, b, delta: b - a }
 })
 
 // --- Coverage trend + anomalies -------------------------------------------
@@ -103,7 +114,30 @@ const progressX = computed(() => {
         <h3>Analytics</h3>
       </header>
 
-      <section class="card">
+      <section v-if="isCompare" class="card">
+        <p class="card-title">
+          <Columns2 :size="13" /> Compare A vs B
+        </p>
+        <div class="stat-row">
+          <span class="stat-label"><span class="dot a"></span>A · {{ fmtShort(simulatorState.compare.aTime) }}</span>
+          <span class="stat-value tnum">{{ compareCounts.a }}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label"><span class="dot b"></span>B · {{ fmtShort(simulatorState.compare.bTime) }}</span>
+          <span class="stat-value tnum">{{ compareCounts.b }}</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Δ vehicles</span>
+          <span
+            class="stat-value tnum"
+            :class="{ up: compareCounts.delta > 0, down: compareCounts.delta < 0 }"
+          >
+            {{ compareCounts.delta > 0 ? '+' : '' }}{{ compareCounts.delta }}
+          </span>
+        </div>
+      </section>
+
+      <section v-if="!isCompare" class="card">
         <p class="card-title">This frame</p>
         <div class="stat-row">
           <span class="stat-label">Vehicles</span>
@@ -312,6 +346,30 @@ const progressX = computed(() => {
 
 .stat-value.live {
   color: var(--alert);
+}
+
+.stat-value.up {
+  color: var(--ok);
+}
+
+.stat-value.down {
+  color: var(--alert);
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.dot.a {
+  background: #5fa3e3;
+}
+
+.dot.b {
+  background: #f2994a;
 }
 
 .placeholder-note {

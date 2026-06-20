@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { ChevronLeft, ChevronRight, LocateFixed, Pause, Play, Radio, SkipBack, SkipForward, X } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Columns2, LocateFixed, Pause, Play, Radio, SkipBack, SkipForward, X } from 'lucide-vue-next'
 
 const props = defineProps({
   simulatorState: {
@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'toggle-follow', 'stop'])
+const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'toggle-follow', 'toggle-compare', 'set-compare-time', 'stop'])
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -217,7 +217,38 @@ const onTrackKeydown = (event) => {
       </button>
     </div>
 
-    <div class="sim-bar-timeline">
+    <div v-if="simulatorState.mode === 'compare'" class="sim-bar-cmp">
+      <div class="sim-cmp-row">
+        <span class="sim-cmp-tag a">A</span>
+        <span class="sim-cmp-time tnum">{{ fmt(simulatorState.compare.aTime) }}</span>
+        <input
+          class="sim-cmp-slider a"
+          type="range"
+          :min="simulatorState.from"
+          :max="simulatorState.to"
+          :step="sliderStep"
+          :value="simulatorState.compare.aTime ?? simulatorState.from"
+          aria-label="Compare time A"
+          @input="emit('set-compare-time', { which: 'a', ms: Number($event.target.value) })"
+        />
+      </div>
+      <div class="sim-cmp-row">
+        <span class="sim-cmp-tag b">B</span>
+        <span class="sim-cmp-time tnum">{{ fmt(simulatorState.compare.bTime) }}</span>
+        <input
+          class="sim-cmp-slider b"
+          type="range"
+          :min="simulatorState.from"
+          :max="simulatorState.to"
+          :step="sliderStep"
+          :value="simulatorState.compare.bTime ?? simulatorState.to"
+          aria-label="Compare time B"
+          @input="emit('set-compare-time', { which: 'b', ms: Number($event.target.value) })"
+        />
+      </div>
+    </div>
+
+    <div v-else class="sim-bar-timeline">
       <span class="sim-bar-time tnum">{{ fmt(simulatorState.currentTime) }}</span>
       <div
         ref="trackEl"
@@ -279,6 +310,17 @@ const onTrackKeydown = (event) => {
         @click="emit('toggle-follow')"
       >
         <LocateFixed :size="15" />
+      </button>
+      <button
+        class="sim-bar-btn"
+        :class="{ active: simulatorState.mode === 'compare' }"
+        type="button"
+        :aria-pressed="simulatorState.mode === 'compare'"
+        aria-label="Compare two times"
+        title="Compare (A/B)"
+        @click="emit('toggle-compare')"
+      >
+        <Columns2 :size="15" />
       </button>
 
       <div class="sim-bar-speeds">
@@ -401,6 +443,56 @@ const onTrackKeydown = (event) => {
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.sim-bar-cmp {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.sim-cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sim-cmp-tag {
+  width: 16px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  color: #0b1220;
+}
+
+.sim-cmp-tag.a {
+  background: #5fa3e3;
+}
+
+.sim-cmp-tag.b {
+  background: #f2994a;
+}
+
+.sim-cmp-time {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 96px;
+}
+
+.sim-cmp-slider {
+  flex: 1;
+  min-width: 0;
+}
+
+.sim-cmp-slider.a {
+  accent-color: #5fa3e3;
+}
+
+.sim-cmp-slider.b {
+  accent-color: #f2994a;
 }
 
 .sim-bar-time {

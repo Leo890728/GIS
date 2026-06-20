@@ -84,6 +84,8 @@ const emit = defineEmits([
   'simulator-set-window',
   'simulator-toggle-live',
   'simulator-toggle-follow',
+  'simulator-toggle-compare',
+  'simulator-set-compare-time',
   'simulator-stop'
 ])
 
@@ -536,6 +538,48 @@ watch(
   }
 )
 
+// Compare mode: a dedicated dual-color circle overlay (A=blue, B=orange).
+const ensureCompareLayer = () => {
+  const m = map.value
+  if (!m || !m.isStyleLoaded()) return false
+  if (!m.getSource('sim-compare-source')) {
+    m.addSource('sim-compare-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getLayer('sim-compare-layer')) {
+    m.addLayer({
+      id: 'sim-compare-layer',
+      type: 'circle',
+      source: 'sim-compare-source',
+      layout: { visibility: 'none' },
+      paint: {
+        'circle-radius': 6,
+        'circle-color': ['coalesce', ['get', '__cmpColor'], '#5fa3e3'],
+        'circle-opacity': 0.85,
+        'circle-stroke-color': '#0b1220',
+        'circle-stroke-width': 1.2
+      }
+    })
+  }
+  return true
+}
+
+watch(
+  () => props.simulatorState?.compareGeoJson,
+  (fc) => {
+    if (!ensureCompareLayer()) return
+    const src = map.value.getSource('sim-compare-source')
+    if (src) src.setData(fc || { type: 'FeatureCollection', features: [] })
+  }
+)
+
+watch(
+  () => props.simulatorState?.mode,
+  (mode) => {
+    if (!ensureCompareLayer()) return
+    map.value.setLayoutProperty('sim-compare-layer', 'visibility', mode === 'compare' ? 'visible' : 'none')
+  }
+)
+
 onMounted(() => {
   createMap()
 })
@@ -630,6 +674,8 @@ onBeforeUnmount(() => {
       @set-window="emit('simulator-set-window', $event)"
       @toggle-live="emit('simulator-toggle-live')"
       @toggle-follow="emit('simulator-toggle-follow')"
+      @toggle-compare="emit('simulator-toggle-compare')"
+      @set-compare-time="emit('simulator-set-compare-time', $event)"
       @stop="emit('simulator-stop')"
     />
 

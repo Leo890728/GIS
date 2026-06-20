@@ -52,6 +52,8 @@ const {
   setSimulatorWindow,
   toggleSimulatorLive,
   toggleSimulatorAutoFollow,
+  toggleSimulatorCompare,
+  setSimulatorCompareTime,
   stopSimulator
 } = useSimulator(API_BASE_URL, {
   getSimulatorCandidates,
@@ -175,6 +177,8 @@ const handleToggleRouteLayer = (layerKey) => {
         @simulator-set-window="setSimulatorWindow($event.from, $event.to)"
         @simulator-toggle-live="toggleSimulatorLive"
         @simulator-toggle-follow="toggleSimulatorAutoFollow"
+        @simulator-toggle-compare="toggleSimulatorCompare"
+        @simulator-set-compare-time="setSimulatorCompareTime($event.which, $event.ms)"
         @simulator-stop="stopSimulator"
       />
     </main>
