@@ -81,6 +81,7 @@ const emit = defineEmits([
   'simulator-step',
   'simulator-toggle-smooth',
   'simulator-select-segment',
+  'simulator-set-window',
   'simulator-toggle-live',
   'simulator-toggle-follow',
   'simulator-stop'
@@ -626,6 +627,7 @@ onBeforeUnmount(() => {
       @step="emit('simulator-step', $event)"
       @toggle-smooth="emit('simulator-toggle-smooth')"
       @select-segment="emit('simulator-select-segment', $event)"
+      @set-window="emit('simulator-set-window', $event)"
       @toggle-live="emit('simulator-toggle-live')"
       @toggle-follow="emit('simulator-toggle-follow')"
       @stop="emit('simulator-stop')"

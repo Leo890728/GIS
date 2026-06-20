@@ -49,6 +49,7 @@ const {
   stepSimulatorFrame,
   toggleSimulatorSmooth,
   selectSimulatorSegment,
+  setSimulatorWindow,
   toggleSimulatorLive,
   toggleSimulatorAutoFollow,
   stopSimulator
@@ -171,6 +172,7 @@ const handleToggleRouteLayer = (layerKey) => {
         @simulator-step="stepSimulatorFrame"
         @simulator-toggle-smooth="toggleSimulatorSmooth"
         @simulator-select-segment="selectSimulatorSegment"
+        @simulator-set-window="setSimulatorWindow($event.from, $event.to)"
         @simulator-toggle-live="toggleSimulatorLive"
         @simulator-toggle-follow="toggleSimulatorAutoFollow"
         @simulator-stop="stopSimulator"

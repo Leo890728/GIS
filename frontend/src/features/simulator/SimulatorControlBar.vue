@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'toggle-live', 'toggle-follow', 'stop'])
+const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'toggle-follow', 'stop'])
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -64,13 +64,18 @@ const pctOf = (ms) => {
 const scrubberPct = computed(() => pctOf(props.simulatorState.currentTime ?? playTo.value))
 
 // Recording sessions render as solid bands; the hatched rail between them = gaps.
+// Bands outside the (possibly zoomed) window are dropped.
 const bands = computed(() =>
-  segments.value.map((seg, index) => ({
-    index,
-    left: pctOf(seg.from),
-    width: Math.max(0.5, pctOf(seg.to) - pctOf(seg.from)),
-    active: props.simulatorState.selectedSegmentIndex === index
-  }))
+  segments.value
+    .map((seg, index) => ({
+      index,
+      from: seg.from,
+      to: seg.to,
+      left: pctOf(seg.from),
+      width: Math.max(0.5, pctOf(seg.to) - pctOf(seg.from)),
+      active: props.simulatorState.selectedSegmentIndex === index
+    }))
+    .filter((b) => b.to >= playFrom.value && b.from <= playTo.value)
 )
 
 const timeFromClientX = (clientX) => {
@@ -86,18 +91,63 @@ const seekTo = (clientX) => {
   if (ms != null) emit('set-time', ms)
 }
 
+const panning = ref(false)
+let panStartX = 0
+let panFrom = 0
+let panTo = 0
+
 const onTrackPointerDown = (event) => {
-  dragging.value = true
   trackEl.value?.setPointerCapture?.(event.pointerId)
+  if (event.shiftKey) {
+    panning.value = true
+    panStartX = event.clientX
+    panFrom = playFrom.value
+    panTo = playTo.value
+    return
+  }
+  dragging.value = true
   seekTo(event.clientX)
 }
 const onTrackPointerMove = (event) => {
+  if (panning.value) {
+    const el = trackEl.value
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const span = panTo - panFrom
+    const dt = ((event.clientX - panStartX) / rect.width) * span
+    const dataFrom = props.simulatorState.from
+    const dataTo = props.simulatorState.to
+    let lo = panFrom - dt
+    let hi = panTo - dt
+    if (lo < dataFrom) {
+      lo = dataFrom
+      hi = lo + span
+    }
+    if (hi > dataTo) {
+      hi = dataTo
+      lo = hi - span
+    }
+    emit('set-window', { from: lo, to: hi })
+    return
+  }
   if (dragging.value) seekTo(event.clientX)
   else hoverTime.value = timeFromClientX(event.clientX)
 }
 const onTrackPointerUp = (event) => {
   dragging.value = false
+  panning.value = false
   trackEl.value?.releasePointerCapture?.(event.pointerId)
+}
+
+const onTrackWheel = (event) => {
+  const focus = timeFromClientX(event.clientX)
+  if (focus == null) return
+  const factor = event.deltaY < 0 ? 0.8 : 1.25 // scroll up = zoom in
+  let lo = focus - (focus - playFrom.value) * factor
+  let hi = focus + (playTo.value - focus) * factor
+  lo = Math.max(props.simulatorState.from, lo)
+  hi = Math.min(props.simulatorState.to, hi)
+  emit('set-window', { from: lo, to: hi })
 }
 const onTrackLeave = () => {
   hoverTime.value = null
@@ -174,16 +224,18 @@ const onTrackKeydown = (event) => {
         class="sim-track"
         role="slider"
         tabindex="0"
-        aria-label="Playback timeline"
+        aria-label="Playback timeline (scroll to zoom, shift-drag to pan)"
         :aria-valuemin="playFrom"
         :aria-valuemax="playTo"
         :aria-valuenow="simulatorState.currentTime ?? playTo"
         :aria-valuetext="fmt(simulatorState.currentTime)"
+        title="Scroll to zoom · Shift-drag to pan"
         @pointerdown="onTrackPointerDown"
         @pointermove="onTrackPointerMove"
         @pointerup="onTrackPointerUp"
         @pointerleave="onTrackLeave"
         @keydown="onTrackKeydown"
+        @wheel.prevent="onTrackWheel"
       >
         <div class="sim-track-rail"></div>
         <div

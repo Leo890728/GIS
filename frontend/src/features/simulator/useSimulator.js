@@ -499,6 +499,28 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (state.autoFollow) renderCurrent(true) // emit an initial follow target
   }
 
+  // Zoom/pan the visible playback window. Sessions remain quick-jump presets;
+  // any custom window clears the active session highlight.
+  const setWindow = (fromMs, toMs) => {
+    if (!state.active || state.from == null || state.to == null) return
+    pause()
+    exitLive()
+    const minSpan = Math.max((Number(state.intervalSeconds) || 60) * 1000 * 2, 1000)
+    let lo = Math.max(state.from, Math.min(Number(fromMs), Number(toMs)))
+    let hi = Math.min(state.to, Math.max(Number(fromMs), Number(toMs)))
+    if (hi - lo < minSpan) {
+      const mid = (lo + hi) / 2
+      lo = Math.max(state.from, mid - minSpan / 2)
+      hi = Math.min(state.to, lo + minSpan)
+      lo = Math.max(state.from, hi - minSpan)
+    }
+    state.playFrom = lo
+    state.playTo = hi
+    state.selectedSegmentIndex = -1
+    state.currentTime = Math.min(hi, Math.max(lo, state.currentTime ?? hi))
+    renderCurrent(true)
+  }
+
   const selectDataset = async (dataId) => {
     if (!dataId) return
     pause()
@@ -625,6 +647,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     stepSimulatorFrame: stepFrame,
     toggleSimulatorSmooth: toggleSmooth,
     selectSimulatorSegment: selectSegment,
+    setSimulatorWindow: setWindow,
     toggleSimulatorLive: toggleLive,
     toggleSimulatorAutoFollow: toggleAutoFollow,
     stopSimulator: stop
