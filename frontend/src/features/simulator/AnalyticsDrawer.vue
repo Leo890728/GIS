@@ -9,6 +9,8 @@ const props = defineProps({
   }
 })
 
+const emit = defineEmits(['seek'])
+
 const open = ref(true)
 
 const fmt = (ms) => {
@@ -42,6 +44,42 @@ const sessionLabel = computed(() => {
 const smoothPct = computed(() => {
   const p = props.simulatorState.smoothProgress
   return p?.total ? Math.round((p.done / p.total) * 100) : 0
+})
+
+// --- Coverage trend + anomalies -------------------------------------------
+const coverage = computed(() => props.simulatorState.coverage || {})
+const series = computed(() => coverage.value.series || [])
+const anomalies = computed(() => coverage.value.anomalies || [])
+const totalRegions = computed(() => coverage.value.totalRegions || 0)
+
+const currentCoverage = computed(() => {
+  const s = series.value
+  if (!s.length) return null
+  const t = props.simulatorState.currentTime
+  let chosen = s[0]
+  for (const p of s) {
+    if (p.tMs <= t) chosen = p
+    else break
+  }
+  return chosen
+})
+
+const currentPct = computed(() => (currentCoverage.value ? Math.round(currentCoverage.value.pct * 100) : null))
+
+// Sparkline over a 100x100 viewBox (preserveAspectRatio none stretches it).
+const sparkPoints = computed(() => {
+  const s = series.value
+  if (s.length < 2) return ''
+  return s.map((p, i) => `${(i / (s.length - 1)) * 100},${100 - p.pct * 100}`).join(' ')
+})
+
+const progressX = computed(() => {
+  const s = series.value
+  if (s.length < 2) return 0
+  const t0 = s[0].tMs
+  const t1 = s[s.length - 1].tMs
+  const span = t1 - t0 || 1
+  return Math.min(100, Math.max(0, ((props.simulatorState.currentTime - t0) / span) * 100))
 })
 </script>
 
@@ -99,14 +137,49 @@ const smoothPct = computed(() => {
         </div>
       </section>
 
-      <!-- Phase 2b: backed by an analytics API (trend / anomaly / regions). -->
-      <section class="card placeholder">
+      <section class="card">
+        <p class="card-title">Coverage</p>
+        <div class="stat-row">
+          <span class="stat-label">Serviced now</span>
+          <span class="stat-value tnum">
+            <template v-if="currentPct != null">{{ currentPct }}%</template>
+            <template v-else>—</template>
+          </span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Regions covered</span>
+          <span class="stat-value tnum">
+            <template v-if="currentCoverage">{{ currentCoverage.covered }}/{{ totalRegions }}</template>
+            <template v-else>—</template>
+          </span>
+        </div>
+        <svg
+          v-if="sparkPoints"
+          class="spark"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <polyline class="spark-line" :points="sparkPoints" />
+          <line class="spark-cursor" :x1="progressX" :y1="0" :x2="progressX" :y2="100" />
+        </svg>
+        <p v-else class="placeholder-note">計算覆蓋率中…</p>
+      </section>
+
+      <section class="card">
         <p class="card-title">
-          <TriangleAlert :size="13" /> Trends &amp; anomalies
+          <TriangleAlert :size="13" /> Anomalies
+          <span class="badge" :class="{ alert: anomalies.length }">{{ anomalies.length }}</span>
         </p>
-        <p class="placeholder-note">
-          趨勢、異常偵測與受影響區域需後端統計 API(Phase 2b)。待定義「異常」規則後接入。
-        </p>
+        <ul v-if="anomalies.length" class="anomaly-list">
+          <li v-for="(a, i) in anomalies" :key="i">
+            <button type="button" class="anomaly-btn" @click="emit('seek', a.tMs)">
+              <span class="anomaly-time tnum">{{ fmt(a.tMs) }}</span>
+              <span class="anomaly-tag">覆蓋率下降 {{ Math.round(a.pct * 100) }}%</span>
+            </button>
+          </li>
+        </ul>
+        <p v-else class="placeholder-note">目前視窗無覆蓋率異常。</p>
       </section>
     </div>
   </aside>
@@ -217,14 +290,91 @@ const smoothPct = computed(() => {
   text-align: right;
 }
 
-.placeholder {
-  border-style: dashed;
-}
-
 .placeholder-note {
   margin: 0;
   font-size: 10px;
   line-height: 1.5;
   color: var(--text-dim);
+}
+
+.spark {
+  width: 100%;
+  height: 40px;
+  margin-top: 4px;
+}
+
+.spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.spark-cursor {
+  stroke: #f4e3a5;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.badge {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+}
+
+.badge.alert {
+  color: #1a1010;
+  background: var(--alert);
+  border-color: var(--alert);
+}
+
+.anomaly-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.anomaly-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.anomaly-btn:hover {
+  border-color: var(--alert);
+}
+
+.anomaly-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.anomaly-time {
+  font-size: 10px;
+}
+
+.anomaly-tag {
+  font-size: 10px;
+  color: var(--alert);
+  font-weight: 600;
 }
 </style>

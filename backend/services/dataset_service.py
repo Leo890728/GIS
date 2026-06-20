@@ -5,6 +5,7 @@ import httpx
 
 from backend.data_sources import ADAPTER_REGISTRY
 from backend.geo.osrm import DEFAULT_MAX_URL_LENGTH, DEFAULT_MAX_WAYPOINTS_PER_CALL
+from backend.services.history_coverage_service import compute_coverage, prepare_regions
 from backend.services.history_track_service import DEFAULT_OSRM_CONCURRENCY, build_entity_tracks
 from backend.services.point_aggregate import aggregate_grouped
 from backend.services.point_query import query_points
@@ -40,6 +41,7 @@ class DatasetService:
         self.history_db = history_db
         self.osrm_leg_router = osrm_leg_router
         self._osrm_leg_cache = {}
+        self._coverage_cache = {}
         self._http_client = None
         self._cache = {}
         if cache_db:
@@ -194,6 +196,55 @@ class DatasetService:
             max_url_length=int(osrm.get("max_url_length") or DEFAULT_MAX_URL_LENGTH),
             progress_cb=progress_cb,
         )
+
+    def history_coverage(self, data_id, frm=None, to=None, regions_service=None):
+        source = self._require_history(data_id)
+        key_fields = (source.get("history") or {}).get("key") or []
+        frames = [f for f in self.history_db.frames(data_id, frm, to) if f is not None]
+
+        # Point-in-polygon over every capture is expensive; sub-sample to keep a
+        # responsive trend (anomaly granularity stays minute-scale on dense data).
+        max_frames = 150
+        if len(frames) > max_frames:
+            step = (len(frames) + max_frames - 1) // max_frames
+            sampled = frames[::step]
+            if sampled[-1] is not frames[-1]:
+                sampled.append(frames[-1])
+            frames = sampled
+
+        # Cache by the exact window + last capture, so new history invalidates it.
+        cache_key = (data_id, frm, to, len(frames), frames[-1] if frames else None)
+        cached = self._coverage_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Pass 1: collect per-frame vehicle positions + the data's bounding box.
+        frames_positions = []
+        min_lng = min_lat = float("inf")
+        max_lng = max_lat = float("-inf")
+        for t in frames:
+            positions = []
+            for feature in self.history_db.state_at(data_id, t, key_fields):
+                coords = (feature.get("geometry") or {}).get("coordinates") or []
+                if len(coords) < 2:
+                    continue
+                lng, lat = coords[0], coords[1]
+                positions.append((lng, lat))
+                min_lng, min_lat = min(min_lng, lng), min(min_lat, lat)
+                max_lng, max_lat = max(max_lng, lng), max(max_lat, lat)
+            frames_positions.append((t, positions))
+
+        regions = []
+        if regions_service is not None and min_lng <= max_lng:
+            try:
+                features = regions_service.townships_in_bbox(min_lng, min_lat, max_lng, max_lat)
+                regions = prepare_regions(features)
+            except Exception:  # pragma: no cover - SpatiaLite misconfig -> empty coverage
+                regions = []
+
+        result = compute_coverage(frames_positions, regions)
+        self._coverage_cache[cache_key] = result
+        return result
 
     def _get_source(self, data_id):
         source = self.sources.get(data_id)

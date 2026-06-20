@@ -312,6 +312,36 @@ class RegionsService:
 
         return {"type": "FeatureCollection", "features": features}
 
+    def townships_in_bbox(self, min_lng, min_lat, max_lng, max_lat):
+        """Township polygons whose bounds intersect the bbox (for coverage analytics).
+
+        Returns GeoJSON-ish features with ``properties.code`` / ``properties.name``
+        so :func:`history_coverage_service.prepare_regions` can consume them directly.
+        """
+        conn = self._connect_bounds(load_spatialite=True)
+        try:
+            rows = conn.execute(
+                "SELECT towncode, townname, AsGeoJSON(GEOMETRY) AS _geom FROM township "
+                "WHERE MbrIntersects(GEOMETRY, BuildMbr(?, ?, ?, ?))",
+                (min_lng, min_lat, max_lng, max_lat),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        features = []
+        for row in rows:
+            geom = row["_geom"]
+            if not geom:
+                continue
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": json.loads(geom),
+                    "properties": {"code": row["towncode"], "name": row["townname"]},
+                }
+            )
+        return features
+
     # ── stat zone population ──────────────────────────────────────────────────
 
     def _stat_zone_cache_filter(

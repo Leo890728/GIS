@@ -20,6 +20,17 @@ export const fetchHistoryAt = (apiBaseUrl, dataId, ms) =>
     'load history frame'
   )
 
+export const fetchHistoryCoverage = (apiBaseUrl, dataId, fromMs, toMs) => {
+  const params = new URLSearchParams()
+  if (fromMs != null) params.set('from', toIso(fromMs))
+  if (toMs != null) params.set('to', toIso(toMs))
+  const query = params.toString()
+  return getJson(
+    `${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/coverage${query ? `?${query}` : ''}`,
+    'load coverage'
+  )
+}
+
 export const fetchHistoryTrack = (apiBaseUrl, dataId, fromMs, toMs) => {
   const params = new URLSearchParams()
   if (fromMs != null) params.set('from', toIso(fromMs))
