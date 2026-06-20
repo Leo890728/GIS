@@ -140,8 +140,9 @@ class HistoryTrackServiceTestCase(unittest.TestCase):
         self.assertEqual(1, len(self.calls))  # one batched request
         self.assertEqual(3, len(self.calls[0]))  # all three waypoints in one chain
 
-    def test_stationary_pair_splits_batched_runs(self):
-        # A stationary middle leg breaks the chain into two routed runs.
+    def test_stationary_pair_does_not_split_run(self):
+        # A stationary middle hop is kept inside the run as a waypoint (one
+        # request for the whole session), not split into two requests.
         self._append(_t(0), [_feat("A", 120.0, 24.0, _t(0))])
         self._append(_t(1), [_feat("A", 120.01, 24.0, _t(1))])  # move
         self._append(_t(2), [_feat("A", 120.01001, 24.0, _t(2))])  # ~1 m -> stationary
@@ -150,7 +151,8 @@ class HistoryTrackServiceTestCase(unittest.TestCase):
         build_entity_tracks(
             self.db, "ds", KEY_FIELDS, None, None, leg_router=self._identity_router(), leg_cache={}
         )
-        self.assertEqual(2, len(self.calls))  # run split by the stationary middle leg
+        self.assertEqual(1, len(self.calls))  # single batched request for the session
+        self.assertEqual(4, len(self.calls[0]))  # all four points incl. the stationary one
 
     def test_leg_cache_avoids_duplicate_routing(self):
         # The same directed leg P->Q appears in two distinct entities; the second

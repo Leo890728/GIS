@@ -49,10 +49,6 @@ def _point(sample):
     return {"t": _iso(sample["t"]), "lng": sample["lng"], "lat": sample["lat"]}
 
 
-def _cache_key(profile, pa, pb):
-    return (profile, round(pa[0], 5), round(pa[1], 5), round(pb[0], 5), round(pb[1], 5))
-
-
 def _chain_key(profile, coordinates):
     return (profile,) + tuple((round(x, 5), round(y, 5)) for x, y in coordinates)
 
@@ -78,13 +74,15 @@ def _validate_leg(leg, pa, pb, straight_m, max_detour_factor):
     return [(c[0], c[1]) for c in leg]
 
 
-def _plan_entity_runs(samples, profile, leg_cache, min_move_m, breaks):
-    """Decide each pair's leg without routing.
+def _plan_entity_runs(samples, min_move_m, breaks):
+    """Group an entity's samples into routing runs.
 
-    Break and near-stationary pairs are filled with straight placeholders, cached
-    pairs are reused, and the rest are grouped into maximal contiguous runs that
-    still need OSRM. Returns ``(pairs, legs, runs)`` where ``runs`` is a list of
-    ``(start, end, coordinates)``.
+    A run is a maximal block of consecutive pairs *between recording gaps*
+    (breaks). Near-stationary points are kept inside the run as OSRM waypoints so
+    one continuous session is a single request (preserving stop-and-go timing)
+    rather than being fragmented at every short hop. A block with no real move
+    (all hops < ``min_move_m``) is skipped entirely. Returns ``(pairs, runs)``
+    where ``runs`` is a list of ``(start, end, coordinates)``.
     """
     pairs = []
     for i in range(len(samples) - 1):
@@ -92,27 +90,15 @@ def _plan_entity_runs(samples, profile, leg_cache, min_move_m, breaks):
         pb = (samples[i + 1]["lng"], samples[i + 1]["lat"])
         pairs.append((pa, pb, haversine_m(pa, pb)))
 
-    legs = [None] * len(pairs)
-    needs_routing = []
-    for i, (pa, pb, straight_m) in enumerate(pairs):
-        if breaks[i]:
-            legs[i] = [pa, pb]  # placeholder; a break leg is never rendered
-            continue
-        if straight_m < min_move_m:
-            legs[i] = [pa, pb]
-            continue
-        cached = leg_cache.get(_cache_key(profile, pa, pb))
-        if cached is not None:
-            legs[i] = cached
-            continue
-        needs_routing.append(i)
-
+    non_break = [i for i in range(len(pairs)) if not breaks[i]]
     runs = []
-    for run in _contiguous_runs(needs_routing):
-        start, end = run[0], run[-1]
+    for block in _contiguous_runs(non_break):
+        start, end = block[0], block[-1]
+        if not any(pairs[i][2] >= min_move_m for i in range(start, end + 1)):
+            continue  # whole block is stationary -> nothing worth routing
         coordinates = [pairs[start][0]] + [pairs[i][1] for i in range(start, end + 1)]
         runs.append((start, end, coordinates))
-    return pairs, legs, runs
+    return pairs, runs
 
 
 def _timestamp_leg(coords, ta, tb):
@@ -209,22 +195,21 @@ def build_entity_tracks(
                 and (samples[i + 1]["t"] - samples[i]["t"]).total_seconds() > max_gap_seconds
                 for i in range(len(samples) - 1)
             ]
-            pairs, legs, runs = _plan_entity_runs(
-                samples, profile, leg_cache, min_move_m, plan["breaks"]
-            )
+            pairs, runs = _plan_entity_runs(samples, min_move_m, plan["breaks"])
             named_runs = []
             for start, end, coordinates in runs:
                 chain = _chain_key(profile, coordinates)
-                jobs.setdefault(chain, coordinates)
+                if chain not in leg_cache:
+                    jobs.setdefault(chain, coordinates)
                 named_runs.append((start, end, chain))
-            plan.update(pairs=pairs, legs=legs, runs=named_runs)
+            plan.update(pairs=pairs, runs=named_runs)
         plans.append(plan)
 
-    # --- Phase 2: route all unique jobs concurrently. -------------------------
+    # --- Phase 2: route all unique, uncached jobs concurrently. ---------------
     total = len(jobs)
     if progress_cb:
         progress_cb(0, total)
-    routed_by_chain = {}
+    results = dict(leg_cache)  # seed with cross-build cache hits (chain -> legs)
     if jobs:
         done = 0
         with ThreadPoolExecutor(max_workers=min(max_concurrency, len(jobs))) as pool:
@@ -235,9 +220,12 @@ def build_entity_tracks(
             for future in as_completed(future_to_chain):
                 chain = future_to_chain[future]
                 try:
-                    routed_by_chain[chain] = future.result()
+                    routed = future.result()
                 except Exception:  # pragma: no cover - network/OSRM failure -> fallback
-                    routed_by_chain[chain] = None
+                    routed = None
+                results[chain] = routed
+                if routed is not None:
+                    leg_cache[chain] = routed
                 done += 1
                 if progress_cb:
                     progress_cb(done, total)
@@ -249,15 +237,18 @@ def build_entity_tracks(
         if len(samples) == 1:
             segments = [_segment([_point(samples[0])])]
         else:
-            pairs, legs = plan["pairs"], plan["legs"]
+            pairs = plan["pairs"]
+            # Default every leg to a straight segment (covers breaks, stationary
+            # hops, and routing fallbacks); routed runs override the real moves.
+            legs = [[pa, pb] for (pa, pb, _straight) in pairs]
             for start, end, chain in plan["runs"]:
-                routed = routed_by_chain.get(chain)
+                routed = results.get(chain)
                 for offset, i in enumerate(range(start, end + 1)):
                     pa, pb, straight_m = pairs[i]
+                    if straight_m < min_move_m:
+                        continue  # keep stationary hop straight (anti-jitter)
                     leg = routed[offset] if routed and offset < len(routed) else None
-                    resolved = _validate_leg(leg, pa, pb, straight_m, max_detour_factor)
-                    legs[i] = resolved
-                    leg_cache[_cache_key(profile, pa, pb)] = resolved
+                    legs[i] = _validate_leg(leg, pa, pb, straight_m, max_detour_factor)
             segments = _assemble_segments(samples, legs, plan["breaks"])
 
         tracks.append(

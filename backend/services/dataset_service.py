@@ -4,7 +4,6 @@ import hashlib
 import httpx
 
 from backend.data_sources import ADAPTER_REGISTRY
-from backend.geo.osrm import DEFAULT_MAX_URL_LENGTH, DEFAULT_MAX_WAYPOINTS_PER_CALL
 from backend.services.history_track_service import DEFAULT_OSRM_CONCURRENCY, build_entity_tracks
 from backend.services.point_aggregate import aggregate_grouped
 from backend.services.point_query import query_points
@@ -190,8 +189,6 @@ class DatasetService:
             leg_cache=self._osrm_leg_cache,
             max_gap_seconds=max_gap_seconds,
             max_concurrency=int(osrm.get("concurrency") or DEFAULT_OSRM_CONCURRENCY),
-            max_waypoints_per_call=int(osrm.get("max_waypoints") or DEFAULT_MAX_WAYPOINTS_PER_CALL),
-            max_url_length=int(osrm.get("max_url_length") or DEFAULT_MAX_URL_LENGTH),
             progress_cb=progress_cb,
         )
 
