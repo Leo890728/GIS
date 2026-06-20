@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { applyDataStyleHandler } from '../data/styleHandlers'
-import { fetchHistoryAt, fetchHistoryCoverage, fetchHistoryFrames, fetchHistoryRange, streamHistoryTrack } from './simulatorApi'
+import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, streamHistoryTrack } from './simulatorApi'
 
 const SMOOTH_RENDER_INTERVAL_MS = 40
 
@@ -45,7 +45,6 @@ const createState = () => ({
   smooth: false,
   smoothing: false,
   smoothProgress: { done: 0, total: 0 },
-  coverage: { totalRegions: 0, series: [], anomalies: [], regions: [] },
   loading: false,
   error: ''
 })
@@ -459,21 +458,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     debounceTimer = setTimeout(() => applyActiveFrame(), 80)
   }
 
-  const loadCoverage = async () => {
-    if (!state.dataId) return
-    try {
-      const res = await fetchHistoryCoverage(apiBaseUrl, state.dataId, state.from, state.to)
-      state.coverage = {
-        totalRegions: res?.totalRegions ?? 0,
-        series: (res?.series || []).map((s) => ({ tMs: new Date(s.t).getTime(), pct: s.pct, covered: s.covered })),
-        anomalies: (res?.anomalies || []).map((a) => ({ tMs: new Date(a.t).getTime(), pct: a.pct, reason: a.reason })),
-        regions: res?.regions || []
-      }
-    } catch (error) {
-      console.error(error)
-    }
-  }
-
   // Split the capture timeline into recording sessions on large gaps.
   const deriveSegments = () => {
     const frames = state.frames
@@ -529,7 +513,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
           state.frames = framesResponse.frames.map(toMs).filter((value) => value != null)
         }
         state.segments = deriveSegments()
-        loadCoverage()
       }
       // Keep the clock pinned to "now".
       state.playFrom = state.from
@@ -639,8 +622,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.mode = 'history'
       state.compare = { aTime: null, bTime: null }
       state.compareGeoJson = null
-      state.coverage = { totalRegions: 0, series: [], anomalies: [], regions: [] }
-      loadCoverage() // fire-and-forget; drawer fills in when ready
       if (state.smooth) {
         await loadTracks()
       } else {

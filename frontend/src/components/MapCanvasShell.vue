@@ -682,7 +682,6 @@ onBeforeUnmount(() => {
     <AnalyticsDrawer
       v-if="props.simulatorState?.active"
       :simulator-state="props.simulatorState"
-      @seek="emit('simulator-set-time', $event)"
     />
   </section>
 </template>

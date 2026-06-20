@@ -87,19 +87,6 @@ def history_track(data_id):
     }
 
 
-@bp.get("/data/history/<data_id>/coverage")
-def history_coverage(data_id):
-    service = _service()
-    regions_service = current_app.config.get("REGIONS_SERVICE")
-    frm = _parse_param("from")
-    to = _parse_param("to")
-    try:
-        result = service.history_coverage(data_id, frm, to, regions_service=regions_service)
-    except KeyError as err:
-        abort(404, description=str(err))
-    return {"dataId": data_id, "from": iso_utc(frm), "to": iso_utc(to), **result}
-
-
 def _sse(event, payload):
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 

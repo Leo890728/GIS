@@ -175,31 +175,6 @@ class HistoryApiTestCase(unittest.TestCase):
         self.assertEqual("ds", result["dataId"])
         self.assertEqual({"A", "B"}, {t["key"] for t in result["tracks"]})
 
-    def test_coverage_returns_series_and_total(self):
-        self._build_three_captures()
-
-        def square(code, x0, x1, y0, y1):
-            return {
-                "type": "Feature",
-                "properties": {"code": code, "name": code},
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]],
-                },
-            }
-
-        class FakeRegions:
-            def townships_in_bbox(self, *_args):
-                return [square("T1", 119.5, 121.5, 23.5, 24.5), square("T2", 121.5, 122.5, 24.5, 25.5)]
-
-        self.client.application.config["REGIONS_SERVICE"] = FakeRegions()
-        body = self.client.get("/data/history/ds/coverage").get_json()
-        self.assertEqual("ds", body["dataId"])
-        self.assertEqual(2, body["totalRegions"])  # union {T1, T2}
-        self.assertEqual(3, len(body["series"]))
-        self.assertTrue(all(0 <= s["pct"] <= 1 for s in body["series"]))
-        self.assertEqual(1.0, body["series"][-1]["pct"])  # last frame: A in T1, B in T2
-
     def test_track_stream_unknown_dataset_emits_error(self):
         resp = self.client.get("/data/history/nope/track/stream")
         # The stream itself opens 200; the failure is delivered as an error event.
