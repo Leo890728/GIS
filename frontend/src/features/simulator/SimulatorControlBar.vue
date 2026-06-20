@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ChevronLeft, ChevronRight, Pause, Play, SkipBack, SkipForward, X } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -50,6 +50,91 @@ const stepSession = (direction) => {
   const next = Math.min(order.length - 1, Math.max(0, pos + direction))
   emit('select-segment', order[next])
 }
+
+// --- Custom timeline track (session bands + draggable scrubber) ------------
+const trackEl = ref(null)
+const dragging = ref(false)
+const hoverTime = ref(null)
+
+const span = computed(() => Math.max(1, playTo.value - playFrom.value))
+const pctOf = (ms) => {
+  if (ms == null) return 0
+  return Math.min(100, Math.max(0, ((ms - playFrom.value) / span.value) * 100))
+}
+const scrubberPct = computed(() => pctOf(props.simulatorState.currentTime ?? playTo.value))
+
+// Recording sessions render as solid bands; the hatched rail between them = gaps.
+const bands = computed(() =>
+  segments.value.map((seg, index) => ({
+    index,
+    left: pctOf(seg.from),
+    width: Math.max(0.5, pctOf(seg.to) - pctOf(seg.from)),
+    active: props.simulatorState.selectedSegmentIndex === index
+  }))
+)
+
+const timeFromClientX = (clientX) => {
+  const el = trackEl.value
+  if (!el) return null
+  const rect = el.getBoundingClientRect()
+  const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+  return Math.round(playFrom.value + ratio * span.value)
+}
+
+const seekTo = (clientX) => {
+  const ms = timeFromClientX(clientX)
+  if (ms != null) emit('set-time', ms)
+}
+
+const onTrackPointerDown = (event) => {
+  dragging.value = true
+  trackEl.value?.setPointerCapture?.(event.pointerId)
+  seekTo(event.clientX)
+}
+const onTrackPointerMove = (event) => {
+  if (dragging.value) seekTo(event.clientX)
+  else hoverTime.value = timeFromClientX(event.clientX)
+}
+const onTrackPointerUp = (event) => {
+  dragging.value = false
+  trackEl.value?.releasePointerCapture?.(event.pointerId)
+}
+const onTrackLeave = () => {
+  hoverTime.value = null
+}
+
+const nudge = (steps) => {
+  const cur = props.simulatorState.currentTime ?? playFrom.value
+  const next = Math.min(playTo.value, Math.max(playFrom.value, cur + steps * sliderStep.value))
+  emit('set-time', next)
+}
+const onTrackKeydown = (event) => {
+  switch (event.key) {
+    case 'ArrowLeft':
+    case 'ArrowDown':
+      nudge(-1)
+      break
+    case 'ArrowRight':
+    case 'ArrowUp':
+      nudge(1)
+      break
+    case 'PageDown':
+      nudge(-10)
+      break
+    case 'PageUp':
+      nudge(10)
+      break
+    case 'Home':
+      emit('set-time', playFrom.value)
+      break
+    case 'End':
+      emit('set-time', playTo.value)
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+}
 </script>
 
 <template>
@@ -83,17 +168,42 @@ const stepSession = (direction) => {
     </div>
 
     <div class="sim-bar-timeline">
-      <span class="sim-bar-time">{{ fmt(simulatorState.currentTime) }}</span>
-      <input
-        class="sim-bar-slider"
-        type="range"
-        :min="playFrom"
-        :max="playTo"
-        :step="sliderStep"
-        :value="simulatorState.currentTime ?? playTo"
-        @input="emit('set-time', Number($event.target.value))"
-      />
-      <span class="sim-bar-bound">{{ fmt(playTo) }}</span>
+      <span class="sim-bar-time tnum">{{ fmt(simulatorState.currentTime) }}</span>
+      <div
+        ref="trackEl"
+        class="sim-track"
+        role="slider"
+        tabindex="0"
+        aria-label="Playback timeline"
+        :aria-valuemin="playFrom"
+        :aria-valuemax="playTo"
+        :aria-valuenow="simulatorState.currentTime ?? playTo"
+        :aria-valuetext="fmt(simulatorState.currentTime)"
+        @pointerdown="onTrackPointerDown"
+        @pointermove="onTrackPointerMove"
+        @pointerup="onTrackPointerUp"
+        @pointerleave="onTrackLeave"
+        @keydown="onTrackKeydown"
+      >
+        <div class="sim-track-rail"></div>
+        <div
+          v-for="band in bands"
+          :key="band.index"
+          class="sim-track-band"
+          :class="{ active: band.active }"
+          :style="{ left: band.left + '%', width: band.width + '%' }"
+        ></div>
+        <div class="sim-track-fill" :style="{ width: scrubberPct + '%' }"></div>
+        <div class="sim-track-thumb" :style="{ left: scrubberPct + '%' }"></div>
+        <div
+          v-if="hoverTime != null && !dragging"
+          class="sim-track-preview tnum"
+          :style="{ left: pctOf(hoverTime) + '%' }"
+        >
+          {{ fmt(hoverTime) }}
+        </div>
+      </div>
+      <span class="sim-bar-bound tnum">{{ fmt(playTo) }}</span>
     </div>
 
     <div class="sim-bar-right">
@@ -161,8 +271,8 @@ const stepSession = (direction) => {
 .sim-bar-btn {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 30px;
+  width: 40px;
+  height: 36px;
   border-radius: 8px;
   border: 1px solid #2a3a54;
   background: #1a2940;
@@ -171,11 +281,17 @@ const stepSession = (direction) => {
 }
 
 .sim-bar-btn.play {
-  width: 40px;
-  height: 32px;
+  width: 48px;
+  height: 38px;
   background: #2a4d7a;
   border-color: #5fa3e3;
   color: #eaf4ff;
+}
+
+.sim-bar button:focus-visible,
+.sim-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .sim-bar-session {
@@ -214,10 +330,78 @@ const stepSession = (direction) => {
   white-space: nowrap;
 }
 
-.sim-bar-slider {
+/* Custom timeline track */
+.sim-track {
+  position: relative;
   flex: 1;
   min-width: 0;
-  accent-color: #5fa3e3;
+  height: 26px;
+  cursor: pointer;
+  touch-action: none;
+  border-radius: 6px;
+}
+
+.sim-track-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  /* hatched = recording gap (no data) */
+  background: repeating-linear-gradient(90deg, #16233a 0 6px, #1f2f49 6px 12px);
+}
+
+.sim-track-band {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 8px;
+  border-radius: 3px;
+  background: #29456c; /* recording session (has data) */
+}
+
+.sim-track-band.active {
+  background: var(--accent);
+}
+
+.sim-track-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 8px;
+  border-radius: 6px 0 0 6px;
+  background: rgb(95 163 227 / 32%); /* played portion */
+  pointer-events: none;
+}
+
+.sim-track-thumb {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 3px;
+  background: #f4e3a5;
+  box-shadow: 0 0 6px rgb(0 0 0 / 50%);
+  pointer-events: none;
+}
+
+.sim-track-preview {
+  position: absolute;
+  bottom: 130%;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  background: #0b1220;
+  border: 1px solid var(--line);
+  color: var(--text);
+  pointer-events: none;
 }
 
 .sim-bar-right {
@@ -294,7 +478,7 @@ const stepSession = (direction) => {
 }
 
 .sim-bar-loading {
-  color: #88a4c8;
+  color: #9fb7da;
   font-size: 14px;
 }
 

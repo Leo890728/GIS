@@ -104,7 +104,7 @@ const onSliderInput = (event) => {
       </div>
 
       <div class="sim-time-row">
-        <span class="sim-time-current">{{ fmt(simulatorState.currentTime) }}</span>
+        <span class="sim-time-current tnum">{{ fmt(simulatorState.currentTime) }}</span>
         <span v-if="simulatorState.loading" class="sim-status">loading…</span>
       </div>
 
@@ -226,7 +226,7 @@ const onSliderInput = (event) => {
 .sim-status {
   margin: 0;
   font-size: 10px;
-  color: #88a4c8;
+  color: #9fb7da;
 }
 
 .sim-error {

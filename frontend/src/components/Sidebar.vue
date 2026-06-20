@@ -684,7 +684,7 @@ const drawingTools = [
 
 .more,
 .caret {
-  color: #88a4c8;
+  color: #9fb7da;
   flex-shrink: 0;
   margin-left: auto;
 }

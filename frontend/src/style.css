@@ -1,4 +1,39 @@
-﻿* {
+﻿/*
+ * Design tokens — dark-mode GIS dashboard (see docs/timeline-redesign-plan.md).
+ * Font stacks prefer Fira Code/Fira Sans if installed/self-hosted, but fall back
+ * to system fonts so nothing depends on an external CDN (offline-friendly).
+ */
+:root {
+  --bg: #0b1220;
+  --surface-1: #111c2e;
+  --surface-2: #1a2940;
+  --line: #2a3a54;
+  --text: #eaf1ff;
+  --text-dim: #9fb7da;
+  --accent: #5fa3e3;
+  --accent-strong: #2a4d7a;
+  --ok: #34d399;
+  --warn: #f4c84a;
+  --alert: #ff6b6b;
+
+  --font-sans: 'Fira Sans', Inter, 'Noto Sans TC', sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
+
+  /* z-index scale */
+  --z-map-overlay: 10;
+  --z-timeline: 20;
+  --z-drawer: 30;
+  --z-modal: 50;
+}
+
+/* Tabular, monospace figures for clocks/counters so they don't jitter while ticking. */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+* {
   box-sizing: border-box;
 }
 
@@ -16,9 +51,9 @@ body,
 }
 
 body {
-  background: #0b1220;
-  color: #eaf1ff;
-  font-family: Inter, 'Noto Sans TC', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
 }
 
 /* Global scrollbar theme */
