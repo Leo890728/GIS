@@ -1,17 +1,34 @@
 @echo off
 cd /d "%~dp0"
 
-set PBF=taiwan-260527.osm.pbf
-set OUT=taiwan-noalley.osrm
+for /f "delims=" %%f in ('dir /b /o-d taiwan-*.osm.pbf') do (
+    set "PBF=%%f"
+    goto found
+)
+
+echo No taiwan-*.osm.pbf found.
+pause
+exit /b 1
+
+:found
+set "OUT=taiwan-noalley.osrm"
 set IMAGE=ghcr.io/project-osrm/osrm-backend
+
+rem taiwan-260527.osm.pbf -> taiwan-260527.osrm.datasource_names
+set "DS=%PBF:.osm.pbf=.osrm.datasource_names%"
+
+echo PBF=%PBF%
+echo DS=%DS%
 
 echo [1/4] Extract with no-alley profile...
 docker run --rm -v "%cd%:/data" %IMAGE% osrm-extract -p /data/car_no_alley.lua -o /data/%OUT% /data/%PBF%
 if errorlevel 1 goto error
 
 echo [2/4] Copy datasource_names (osrm-extract -o quirk)...
-copy /Y "%~dp0taiwan-260527.osrm.datasource_names" "%~dp0taiwan-noalley.osrm.datasource_names" >nul
-if errorlevel 1 ( echo WARNING: datasource_names copy failed, continuing... )
+copy /Y "%~dp0%DS%" "%~dp0taiwan-noalley.osrm.datasource_names" >nul
+if errorlevel 1 (
+    echo WARNING: datasource_names copy failed, continuing...
+)
 
 echo [3/4] Partition...
 docker run --rm -v "%cd%:/data" %IMAGE% osrm-partition /data/%OUT%

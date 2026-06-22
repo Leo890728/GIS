@@ -1,5 +1,4 @@
 @echo off
-
 cd /d "%~dp0"
 
 docker run -t -i ^
@@ -9,6 +8,6 @@ ghcr.io/project-osrm/osrm-backend ^
 osrm-routed ^
 --algorithm mld ^
 --max-table-size 1500 ^
-/data/taiwan-260527.osrm
+/data/taiwan.osrm
 
 pause
