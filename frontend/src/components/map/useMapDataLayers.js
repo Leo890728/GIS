@@ -65,9 +65,14 @@ const getIconSizeExpr = (entry) => {
   if (entry?.style?.iconSize != null) {
     return entry.style.iconSize
   }
-  const pointSizeExpr = getPointSizeExpr(entry)
+  // Icon size is fixed per layer and only scales with zoom — it deliberately
+  // ignores the per-feature __style_pointSize. Otherwise a data-driven point
+  // size (e.g. a vehicle's speed band) makes icons pulse in size as values
+  // cross thresholds during simulator playback. Speed is already conveyed by
+  // the icon variant/color, so size needn't encode it too.
+  const baseSize = entry?.style?.pointSize || 6
   if (entry?.style?.scalePointWithZoom === false) {
-    return ['/', pointSizeExpr, 10]
+    return baseSize / 10
   }
   return [
     'interpolate',
@@ -76,9 +81,9 @@ const getIconSizeExpr = (entry) => {
     6,
     0.35,
     12,
-    ['/', pointSizeExpr, 10],
+    baseSize / 10,
     16,
-    ['/', ['+', pointSizeExpr, 2], 10]
+    (baseSize + 2) / 10
   ]
 }
 
