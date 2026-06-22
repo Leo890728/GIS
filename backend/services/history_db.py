@@ -205,7 +205,13 @@ class HistoryDb:
                 "ORDER BY id ASC",
                 (data_id, keyframe["id"], _fmt_dt(t)),
             ).fetchall()
-        return _reconstruct(rows, key_fields)
+        features = _reconstruct(rows, key_fields)
+        # Tag each feature with the same stable entity key used by entity_tracks
+        # so the frontend can map a clicked point to its road-following track.
+        for feature in features:
+            props = feature.setdefault("properties", {})
+            props["__trackKey"] = _feature_key(feature, key_fields)
+        return features
 
     # ------------------------------------------------------------------
     # internals

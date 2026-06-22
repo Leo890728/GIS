@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { BarChart3, ChevronRight, Columns2 } from 'lucide-vue-next'
+import { BarChart3, ChevronRight, LocateFixed, Route, X } from 'lucide-vue-next'
 
 const props = defineProps({
   simulatorState: {
@@ -9,7 +9,21 @@ const props = defineProps({
   }
 })
 
+const emit = defineEmits(['toggle-track', 'toggle-follow', 'clear-selection'])
+
 const open = ref(true)
+
+const selected = computed(() => props.simulatorState.selected)
+const hasTrack = computed(() => !!props.simulatorState.trackGeoJson)
+const isFollowing = computed(() => !!props.simulatorState.autoFollow)
+
+// Show the clicked entity's data fields, hiding internal/style helper keys.
+const selectedRows = computed(() => {
+  const entries = Object.entries(selected.value?.properties ?? {})
+  return entries
+    .filter(([key, value]) => !key.startsWith('__') && value != null && value !== '')
+    .map(([key, value]) => ({ key, value: String(value) }))
+})
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -43,17 +57,6 @@ const smoothPct = computed(() => {
   const p = props.simulatorState.smoothProgress
   return p?.total ? Math.round((p.done / p.total) * 100) : 0
 })
-
-const isCompare = computed(() => props.simulatorState.mode === 'compare')
-const compareCounts = computed(() => {
-  let a = 0
-  let b = 0
-  for (const f of props.simulatorState.compareGeoJson?.features || []) {
-    if (f.properties?.__cmp === 'B') b += 1
-    else a += 1
-  }
-  return { a, b, delta: b - a }
-})
 </script>
 
 <template>
@@ -75,30 +78,49 @@ const compareCounts = computed(() => {
         <h3>Analytics</h3>
       </header>
 
-      <section v-if="isCompare" class="card">
-        <p class="card-title">
-          <Columns2 :size="13" /> Compare A vs B
-        </p>
-        <div class="stat-row">
-          <span class="stat-label"><span class="dot a"></span>A · {{ fmtShort(simulatorState.compare.aTime) }}</span>
-          <span class="stat-value tnum">{{ compareCounts.a }}</span>
+      <section v-if="selected" class="card selected">
+        <div class="selected-head">
+          <p class="card-title">Selected point</p>
+          <button class="icon-btn" type="button" aria-label="Clear selection" @click="emit('clear-selection')">
+            <X :size="13" />
+          </button>
         </div>
-        <div class="stat-row">
-          <span class="stat-label"><span class="dot b"></span>B · {{ fmtShort(simulatorState.compare.bTime) }}</span>
-          <span class="stat-value tnum">{{ compareCounts.b }}</span>
+        <div v-if="selectedRows.length" class="selected-props">
+          <div v-for="row in selectedRows" :key="row.key" class="stat-row">
+            <span class="stat-label">{{ row.key }}</span>
+            <span class="stat-value prop">{{ row.value }}</span>
+          </div>
         </div>
-        <div class="stat-row">
-          <span class="stat-label">Δ vehicles</span>
-          <span
-            class="stat-value tnum"
-            :class="{ up: compareCounts.delta > 0, down: compareCounts.delta < 0 }"
+        <p v-else class="selected-empty">No attributes on this point.</p>
+
+        <div class="selected-actions">
+          <button
+            class="track-btn"
+            :class="{ active: hasTrack }"
+            type="button"
+            :disabled="simulatorState.trackLoading"
+            @click="emit('toggle-track')"
           >
-            {{ compareCounts.delta > 0 ? '+' : '' }}{{ compareCounts.delta }}
-          </span>
+            <Route :size="13" />
+            <span v-if="simulatorState.trackLoading">Building…</span>
+            <span v-else>{{ hasTrack ? 'Hide trajectory' : 'Draw trajectory' }}</span>
+          </button>
+          <button
+            class="follow-btn"
+            :class="{ active: isFollowing }"
+            type="button"
+            :aria-pressed="isFollowing"
+            :title="isFollowing ? 'Stop following' : 'Follow this point'"
+            @click="emit('toggle-follow')"
+          >
+            <LocateFixed :size="13" />
+            <span>{{ isFollowing ? 'Following' : 'Follow' }}</span>
+          </button>
         </div>
+        <p v-if="simulatorState.trackError" class="selected-error">{{ simulatorState.trackError }}</p>
       </section>
 
-      <section v-if="!isCompare" class="card">
+      <section class="card">
         <p class="card-title">This frame</p>
         <div class="stat-row">
           <span class="stat-label">Vehicles</span>
@@ -251,27 +273,104 @@ const compareCounts = computed(() => {
   color: var(--alert);
 }
 
-.stat-value.up {
-  color: var(--ok);
+.card.selected {
+  border-color: #6b5a2a;
+  background: rgb(38 32 18 / 60%);
 }
 
-.stat-value.down {
-  color: var(--alert);
+.selected-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 5px;
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
 }
 
-.dot.a {
-  background: #5fa3e3;
+.icon-btn:hover {
+  color: var(--text);
 }
 
-.dot.b {
-  background: #f2994a;
+.selected-props {
+  display: grid;
+  gap: 5px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.stat-value.prop {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.selected-empty,
+.selected-error {
+  margin: 0;
+  font-size: 10px;
+  color: #9fb7da;
+}
+
+.selected-error {
+  color: #ffb3ad;
+}
+
+.selected-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.track-btn,
+.follow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.track-btn {
+  border: 1px solid #b9912f;
+  background: #2a2310;
+  color: #f4c95d;
+}
+
+.track-btn.active {
+  background: #4a3c14;
+  color: #ffe7a3;
+}
+
+.track-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.follow-btn {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+
+.follow-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-strong);
+  color: #eaf4ff;
 }
 </style>

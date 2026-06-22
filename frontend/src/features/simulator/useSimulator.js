@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { applyDataStyleHandler } from '../data/styleHandlers'
-import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, streamHistoryTrack } from './simulatorApi'
+import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, fetchHistoryTrack, streamHistoryTrack } from './simulatorApi'
 
 const SMOOTH_RENDER_INTERVAL_MS = 40
 
@@ -10,10 +10,6 @@ const DEFAULT_SPEED = 30
 // A gap between captures longer than this many poll cycles is treated as a
 // recording interruption that splits the timeline into separate sessions.
 const GLOBAL_GAP_FACTOR = 4
-
-// Compare-mode overlay colors (A = blue, B = orange).
-const COMPARE_A_COLOR = '#5fa3e3'
-const COMPARE_B_COLOR = '#f2994a'
 
 const toMs = (iso) => {
   if (!iso) return null
@@ -37,8 +33,13 @@ const createState = () => ({
   mode: 'history',
   autoFollow: false,
   followCenter: null,
-  compare: { aTime: null, bTime: null },
-  compareGeoJson: null,
+  selected: null,
+  selectedPos: null,
+  trackGeoJson: null,
+  trackTraveledGeoJson: null,
+  trackEndpointsGeoJson: null,
+  trackLoading: false,
+  trackError: '',
   featureCount: 0,
   playing: false,
   speed: DEFAULT_SPEED,
@@ -75,6 +76,9 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let lastSmoothRenderReal = 0
   let smoothAbort = null
   let liveTimer = null
+  // Normalized [{ path: [{ tMs, lng, lat }] }] of the selected entity's drawn
+  // trajectory; used to recolor the traveled portion as the clock advances.
+  let selectedTrackSegments = null
 
   const stopLive = () => {
     if (liveTimer) {
@@ -88,27 +92,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.mode = 'history'
       stopLive()
     }
-  }
-
-  const centroidOf = (features) => {
-    let sx = 0
-    let sy = 0
-    let n = 0
-    for (const f of features || []) {
-      const c = f?.geometry?.coordinates
-      if (Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) {
-        sx += c[0]
-        sy += c[1]
-        n += 1
-      }
-    }
-    return n ? [sx / n, sy / n] : null
-  }
-
-  const maybeFollow = (features) => {
-    if (!state.autoFollow) return
-    const center = centroidOf(features)
-    if (center) state.followCenter = center
   }
 
   const abortSmoothLoad = () => {
@@ -158,7 +141,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       if (sequence !== frameSequence) return
       dataLayers.setSimulatorGeoJson(styled)
       state.featureCount = Array.isArray(styled?.features) ? styled.features.length : 0
-      maybeFollow(styled?.features)
+      syncSelectedPosition(styled?.features)
       state.error = ''
     } catch (error) {
       if (sequence !== frameSequence) return
@@ -235,14 +218,14 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       if (!position) continue
       features.push({
         type: 'Feature',
-        properties: activePropertiesAt(track.samples, ms),
+        properties: { ...activePropertiesAt(track.samples, ms), __trackKey: track.key },
         geometry: { type: 'Point', coordinates: position }
       })
     }
     const styled = applyDataStyleHandler({ type: 'FeatureCollection', features }, layerEntry)
     dataLayers.setSimulatorGeoJson(styled)
     state.featureCount = features.length
-    maybeFollow(features)
+    syncSelectedPosition(features)
   }
 
   const loadTracks = async () => {
@@ -291,76 +274,13 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     }
   }
 
-  // --- Compare mode (two time cursors overlaid on one map) -------------------
-  const renderCompare = async () => {
-    if (state.mode !== 'compare') return
-    const sequence = ++frameSequence
-    const aMs = nearestFrameMs(state.compare.aTime)
-    const bMs = nearestFrameMs(state.compare.bTime)
-    try {
-      const [aFc, bFc] = await Promise.all([getFrame(aMs), getFrame(bMs)])
-      if (sequence !== frameSequence) return
-      const tag = (fc, color, label) =>
-        (fc?.features || []).map((f) => ({
-          ...f,
-          properties: { ...f.properties, __cmpColor: color, __cmp: label }
-        }))
-      const features = [...tag(aFc, COMPARE_A_COLOR, 'A'), ...tag(bFc, COMPARE_B_COLOR, 'B')]
-      state.compareGeoJson = { type: 'FeatureCollection', features }
-      state.featureCount = features.length
-      state.error = ''
-    } catch (error) {
-      if (sequence !== frameSequence) return
-      console.error(error)
-      state.error = 'Failed to load comparison.'
-    }
-  }
-
   const renderCurrent = (force = false) => {
-    if (state.mode === 'compare') {
-      renderCompare()
-      return
-    }
     if (state.smooth && smoothTracks.length) renderSmooth(state.currentTime)
     else applyActiveFrame(force)
-  }
-
-  const exitCompare = () => {
-    if (state.mode !== 'compare') return
-    state.mode = 'history'
-    state.compareGeoJson = null
-    applyActiveFrame(true)
-  }
-
-  const toggleCompare = () => {
-    if (state.mode === 'compare') {
-      exitCompare()
-      return
-    }
-    pause()
-    exitLive()
-    abortSmoothLoad()
-    state.smoothing = false
-    state.smooth = false
-    smoothTracks = []
-    state.mode = 'compare'
-    state.compare = { aTime: state.playFrom ?? state.from, bTime: state.playTo ?? state.to }
-    dataLayers.setSimulatorGeoJson({ type: 'FeatureCollection', features: [] }) // clear takeover layer
-    renderCompare()
-  }
-
-  const setCompareTime = (which, ms) => {
-    if (state.mode !== 'compare' || state.from == null) return
-    const clamped = Math.min(state.to, Math.max(state.from, Number(ms)))
-    state.compare = {
-      ...state.compare,
-      [which === 'b' ? 'bTime' : 'aTime']: clamped
-    }
-    renderCompare()
+    updateTrackProgress()
   }
 
   const setSmooth = async (enabled) => {
-    if (state.mode === 'compare') return
     state.smooth = enabled === true
     if (state.smooth) {
       await loadTracks()
@@ -373,6 +293,161 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   }
 
   const toggleSmooth = () => setSmooth(!state.smooth)
+
+  // --- Point selection + single-entity trajectory ----------------------------
+
+  // Normalize a track's segments to [{ path: [{ tMs, lng, lat }] }]. Accepts both
+  // the raw /track payload (path vertices carry an ISO `t`) and already-loaded
+  // smooth tracks (vertices carry a numeric `tMs`).
+  const normalizeTrackSegments = (track) =>
+    (track?.segments || [])
+      .map((seg) => ({
+        path: (seg.path || [])
+          .map((point) => ({
+            tMs: Number.isFinite(point.tMs) ? point.tMs : new Date(point.t).getTime(),
+            lng: point.lng,
+            lat: point.lat
+          }))
+          .filter((point) => Number.isFinite(point.tMs))
+      }))
+      .filter((seg) => seg.path.length > 0)
+
+  const segmentsToLineGeoJson = (segments) => {
+    const features = segments
+      .map((seg) => seg.path.map((point) => [point.lng, point.lat]))
+      .filter((coords) => coords.length >= 2)
+      .map((coords) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }))
+    return features.length ? { type: 'FeatureCollection', features } : null
+  }
+
+  // Origin (start) and destination (end) markers for the whole trajectory.
+  const segmentsToEndpointsGeoJson = (segments) => {
+    const vertices = segments.flatMap((seg) => seg.path)
+    if (vertices.length < 2) return null
+    const start = vertices[0]
+    const end = vertices[vertices.length - 1]
+    return {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', properties: { role: 'start' }, geometry: { type: 'Point', coordinates: [start.lng, start.lat] } },
+        { type: 'Feature', properties: { role: 'end' }, geometry: { type: 'Point', coordinates: [end.lng, end.lat] } }
+      ]
+    }
+  }
+
+  // The portion of each segment already traveled at instant `ms`, including an
+  // interpolated point at the exact clock position so the colored line ends
+  // right under the moving vehicle.
+  const traveledCoords = (path, ms) => {
+    if (path.length < 2 || ms <= path[0].tMs) return []
+    const coords = []
+    for (let i = 0; i < path.length; i += 1) {
+      if (path[i].tMs <= ms) {
+        coords.push([path[i].lng, path[i].lat])
+      } else {
+        const a = path[i - 1]
+        const b = path[i]
+        const span = b.tMs - a.tMs
+        const f = span > 0 ? (ms - a.tMs) / span : 0
+        coords.push([a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f])
+        break
+      }
+    }
+    return coords
+  }
+
+  const updateTrackProgress = () => {
+    if (!selectedTrackSegments) return
+    const features = selectedTrackSegments
+      .map((seg) => traveledCoords(seg.path, state.currentTime))
+      .filter((coords) => coords.length >= 2)
+      .map((coords) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }))
+    state.trackTraveledGeoJson = { type: 'FeatureCollection', features }
+  }
+
+  const showTrack = (track) => {
+    const segments = normalizeTrackSegments(track)
+    const baseLine = segmentsToLineGeoJson(segments)
+    if (!baseLine) {
+      state.trackError = 'No trajectory for this point.'
+      return
+    }
+    selectedTrackSegments = segments
+    state.trackGeoJson = baseLine
+    state.trackEndpointsGeoJson = segmentsToEndpointsGeoJson(segments)
+    updateTrackProgress()
+  }
+
+  const hideTrack = () => {
+    selectedTrackSegments = null
+    state.trackGeoJson = null
+    state.trackTraveledGeoJson = null
+    state.trackEndpointsGeoJson = null
+  }
+
+  const clearSelection = () => {
+    state.selected = null
+    state.selectedPos = null
+    state.autoFollow = false
+    state.trackError = ''
+    hideTrack()
+  }
+
+  const selectFeature = (payload) => {
+    if (!payload || payload.key == null) {
+      clearSelection()
+      return
+    }
+    // Selecting a different entity invalidates any drawn trajectory.
+    if (state.selected?.key !== payload.key) hideTrack()
+    state.selected = payload
+    state.selectedPos = Array.isArray(payload.coordinates) ? payload.coordinates : null
+    state.trackError = ''
+  }
+
+  // Keep the selection highlight on the selected entity as the clock moves:
+  // pin the ring to its current-frame position (and recenter the map when
+  // auto-follow is on), or hide it when the entity is absent from this frame.
+  const syncSelectedPosition = (features) => {
+    if (!state.selected) return
+    const key = state.selected.key
+    const match = (features || []).find((feature) => feature?.properties?.__trackKey === key)
+    const coords = match?.geometry?.coordinates
+    state.selectedPos = Array.isArray(coords) ? coords : null
+    if (state.autoFollow && state.selectedPos) state.followCenter = state.selectedPos
+  }
+
+  // Toggle the selected entity's road-following trajectory overlay.
+  const toggleSelectedTrack = async () => {
+    if (!state.selected || !state.dataId) return
+    if (state.trackGeoJson) {
+      hideTrack()
+      return
+    }
+    const key = state.selected.key
+    // Reuse already-built smooth tracks when available to skip an OSRM round-trip.
+    const cached = smoothTracks.find((track) => track.key === key)
+    if (cached) {
+      showTrack(cached)
+      return
+    }
+    state.trackLoading = true
+    state.trackError = ''
+    try {
+      const lo = state.playFrom ?? state.from
+      const hi = state.playTo ?? state.to
+      const response = await fetchHistoryTrack(apiBaseUrl, state.dataId, lo, hi)
+      if (state.selected?.key !== key) return // selection changed mid-flight
+      const track = (response?.tracks || []).find((entry) => entry.key === key)
+      if (track) showTrack(track)
+      else state.trackError = 'No trajectory for this point.'
+    } catch (error) {
+      console.error(error)
+      state.trackError = 'Failed to load trajectory.'
+    } finally {
+      state.trackLoading = false
+    }
+  }
 
   const tick = (nowReal) => {
     if (!state.playing) {
@@ -399,12 +474,12 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     } else {
       applyActiveFrame()
     }
+    updateTrackProgress()
     rafId = requestAnimationFrame(tick)
   }
 
   const play = () => {
     if (!state.active || state.currentTime == null) return
-    if (state.mode === 'compare') return
     exitLive()
     if (state.currentTime >= state.playTo) state.currentTime = state.playFrom
     state.playing = true
@@ -429,7 +504,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stepFrame = (direction) => {
     pause()
-    if (state.mode === 'compare') return
     exitLive()
     const lo = state.playFrom ?? state.from
     const hi = state.playTo ?? state.to
@@ -445,11 +519,11 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const setTime = (ms) => {
     if (!state.active || state.playFrom == null || state.playTo == null) return
-    if (state.mode === 'compare') return
     pause()
     exitLive()
     const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
     state.currentTime = clamped
+    updateTrackProgress()
     if (state.smooth && smoothTracks.length) {
       renderSmooth(clamped)
       return
@@ -481,7 +555,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!state.active) return
     pause()
     exitLive()
-    exitCompare()
+    clearSelection()
     const segment = state.segments[index]
     if (segment) {
       state.selectedSegmentIndex = index
@@ -541,8 +615,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     state.smoothing = false
     state.smooth = false
     smoothTracks = []
-    state.compareGeoJson = null
     state.selectedSegmentIndex = -1
+    clearSelection()
     state.mode = 'live'
     state.playFrom = state.from
     state.playTo = state.to
@@ -552,9 +626,15 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     startLive()
   }
 
+  // Auto-follow recenters the map on the *selected* entity as it moves; the
+  // toggle lives in the Analytics panel and is only meaningful while a point is
+  // selected. Enabling it jumps to the selection's current position right away.
   const toggleAutoFollow = () => {
+    if (!state.selected) return
     state.autoFollow = !state.autoFollow
-    if (state.autoFollow) renderCurrent(true) // emit an initial follow target
+    if (state.autoFollow && Array.isArray(state.selectedPos)) {
+      state.followCenter = [...state.selectedPos]
+    }
   }
 
   // Zoom/pan the visible playback window. Sessions remain quick-jump presets;
@@ -563,7 +643,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!state.active || state.from == null || state.to == null) return
     pause()
     exitLive()
-    exitCompare()
+    clearSelection()
     const minSpan = Math.max((Number(state.intervalSeconds) || 60) * 1000 * 2, 1000)
     let lo = Math.max(state.from, Math.min(Number(fromMs), Number(toMs)))
     let hi = Math.min(state.to, Math.max(Number(fromMs), Number(toMs)))
@@ -584,6 +664,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!dataId) return
     pause()
     exitLive()
+    clearSelection()
     state.loading = true
     state.error = ''
     try {
@@ -620,8 +701,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.playTo = state.to
       state.currentTime = state.to
       state.mode = 'history'
-      state.compare = { aTime: null, bTime: null }
-      state.compareGeoJson = null
       if (state.smooth) {
         await loadTracks()
       } else {
@@ -644,6 +723,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     frameCache = new Map()
     activeFrameMs = null
     smoothTracks = []
+    selectedTrackSegments = null
     dataLayers.exitSimulator()
     layerEntry = null
     Object.assign(state, createState())
@@ -710,8 +790,9 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     setSimulatorWindow: setWindow,
     toggleSimulatorLive: toggleLive,
     toggleSimulatorAutoFollow: toggleAutoFollow,
-    toggleSimulatorCompare: toggleCompare,
-    setSimulatorCompareTime: setCompareTime,
+    selectSimulatorFeature: selectFeature,
+    clearSimulatorSelection: clearSelection,
+    toggleSimulatorTrack: toggleSelectedTrack,
     stopSimulator: stop
   }
 }
