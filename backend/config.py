@@ -47,24 +47,6 @@ SPATIALITE_EXTENSION_PATH = os.getenv(
 )
 
 DATA_SOURCES = {
-	"taichung_garbage_recycling_dynamic": {
-		"adapter": "generic_http_json",
-		"url": "https://newdatacenter.taichung.gov.tw/api/v1/no-auth/resource.download?rid=c923ad20-2ec6-43b9-b3ab-54527e99f7bc",
-		"refresh_seconds": 600,
-		"fields": {
-			"id_parts": ["lineid", "car", "time"],
-			"lng": "X",
-			"lat": "Y",
-			"timestamp": "time",
-		},
-		"history": {
-			"enabled": True,
-			"key": ["lineid", "car"],
-			"keyframe_interval": 50,
-			"retention_days": 7,
-			"osrm": HISTORY_OSRM,
-		},
-	},
 	"taichung_garbage_recycling_dynamic_V2": {
 		"adapter": "taichung_ws_skyeyes",
 		"bootstrap_url": "https://cleaner.epb.taichung.gov.tw/index.aspx",
@@ -79,7 +61,7 @@ DATA_SOURCES = {
 		},
 		"body": "",
 		"rows_path": ["d", "DATA"],
-		"refresh_seconds": 60,
+		"refresh_seconds": 15,
 		"fields": {
 			"id_parts": ["car_id", "car_licence", "dt"],
 			"lng": "x",
