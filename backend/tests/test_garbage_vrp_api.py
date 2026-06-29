@@ -4,7 +4,8 @@ from unittest import mock
 from backend.app import create_app
 from backend.config import BOUNDS_DB_PATH, DATA_DB_PATH, RANGE_STYLES
 from backend.services.dataset_service import DatasetService
-from backend.services.garbage_vrp_service import _build_route_geometry_from_osrm, _snap_pickup_nodes_to_road
+from backend.services.vrp.nodes import _snap_pickup_nodes_to_road
+from backend.services.vrp.osrm_client import _build_route_geometry_from_osrm
 from backend.services.regions_service import RegionsService
 
 
@@ -365,7 +366,7 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
                 [{"distance": 100, "duration": 10} for _ in range(len(chunk_coordinates) - 1)],
             )
 
-        with mock.patch("backend.services.garbage_vrp_service._fetch_osrm_route", side_effect=fake_fetch):
+        with mock.patch("backend.services.vrp.osrm_client._fetch_osrm_route", side_effect=fake_fetch):
             geometry, legs = _build_route_geometry_from_osrm(
                 coordinates=coordinates,
                 osrm_base_url="http://localhost:5002",
@@ -400,9 +401,9 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         def fake_exceeds(_osrm_base_url, _profile, chunk_coordinates, _max_url_length):
             return len(chunk_coordinates) > 2
 
-        with mock.patch("backend.services.garbage_vrp_service._fetch_osrm_route", side_effect=fake_fetch):
+        with mock.patch("backend.services.vrp.osrm_client._fetch_osrm_route", side_effect=fake_fetch):
             with mock.patch(
-                "backend.services.garbage_vrp_service._route_request_exceeds_limit",
+                "backend.services.vrp.osrm_client._route_request_exceeds_limit",
                 side_effect=fake_exceeds,
             ):
                 geometry, legs = _build_route_geometry_from_osrm(
@@ -434,7 +435,7 @@ class GarbageVrpSnapToRoadHelperTestCase(unittest.TestCase):
         ]
 
         with mock.patch(
-            "backend.services.garbage_vrp_service._fetch_osrm_nearest",
+            "backend.services.vrp.nodes._fetch_osrm_nearest",
             return_value={"lng": 120.651, "lat": 24.141, "distance_m": 35},
         ):
             snapped_nodes, snapped_count = _snap_pickup_nodes_to_road(
@@ -464,7 +465,7 @@ class GarbageVrpSnapToRoadHelperTestCase(unittest.TestCase):
         ]
 
         with mock.patch(
-            "backend.services.garbage_vrp_service._fetch_osrm_nearest",
+            "backend.services.vrp.nodes._fetch_osrm_nearest",
             return_value={"lng": 120.651, "lat": 24.141, "distance_m": 999},
         ):
             snapped_nodes, snapped_count = _snap_pickup_nodes_to_road(
@@ -494,7 +495,7 @@ class GarbageVrpSnapToRoadHelperTestCase(unittest.TestCase):
         ]
 
         with mock.patch(
-            "backend.services.garbage_vrp_service._fetch_osrm_nearest",
+            "backend.services.vrp.nodes._fetch_osrm_nearest",
             side_effect=RuntimeError("nearest unavailable"),
         ):
             snapped_nodes, snapped_count = _snap_pickup_nodes_to_road(
