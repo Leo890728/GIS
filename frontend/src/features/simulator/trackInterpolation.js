@@ -42,6 +42,19 @@ export const interpolateSegmentsAt = (segments, ms) => {
   return [lp.lng, lp.lat]
 }
 
+// First/last timestamp across a track's segments, or null when it has no
+// points. Used to hide an entity before its first / after its last capture so
+// smooth playback doesn't leave it frozen at an endpoint outside its lifetime.
+export const trackTimeBounds = (segments) => {
+  if (!segments || !segments.length) return null
+  const firstPath = segments[0].path
+  const lastPath = segments[segments.length - 1].path
+  const first = firstPath?.[0]
+  const last = lastPath?.[lastPath.length - 1]
+  if (!first || !last) return null
+  return [first.tMs, last.tMs]
+}
+
 // The most recent sample's properties at instant `ms` (step function, not
 // interpolated) for surfacing per-capture attributes during playback.
 export const activePropertiesAt = (samples, ms) => {

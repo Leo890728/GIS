@@ -86,8 +86,14 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
       return
     }
     const key = state.selected.key
-    // Reuse already-built smooth tracks when available to skip an OSRM round-trip.
-    const cached = getSmoothTracks().find((track) => track.key === key)
+    const lo = state.playFrom ?? state.from
+    const hi = state.playTo ?? state.to
+    // Smooth tracks are streamed for the full from..to range; only reuse them
+    // when the play window IS the full range. With a session/window selected,
+    // fetch a window-bounded track so the overlay doesn't bleed into other
+    // sessions.
+    const isFullRange = lo === state.from && hi === state.to
+    const cached = isFullRange ? getSmoothTracks().find((track) => track.key === key) : null
     if (cached) {
       showTrack(cached)
       return
@@ -95,8 +101,6 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
     state.trackLoading = true
     state.trackError = ''
     try {
-      const lo = state.playFrom ?? state.from
-      const hi = state.playTo ?? state.to
       const response = await fetchHistoryTrack(apiBaseUrl, state.dataId, lo, hi)
       if (state.selected?.key !== key) return // selection changed mid-flight
       const track = (response?.tracks || []).find((entry) => entry.key === key)

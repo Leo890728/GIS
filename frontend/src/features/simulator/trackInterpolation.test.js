@@ -6,6 +6,7 @@ import {
   normalizeTrackSegments,
   segmentsToEndpointsGeoJson,
   segmentsToLineGeoJson,
+  trackTimeBounds,
   traveledCoords
 } from './trackInterpolation'
 
@@ -33,6 +34,21 @@ describe('interpolateInPath', () => {
 
   it('returns the segment start when the span is zero', () => {
     expect(interpolateInPath([pt(100, 1, 2), pt(100, 9, 9)], 100)).toEqual([1, 2])
+  })
+})
+
+describe('trackTimeBounds', () => {
+  it('returns null for empty/missing segments', () => {
+    expect(trackTimeBounds([])).toBeNull()
+    expect(trackTimeBounds(null)).toBeNull()
+  })
+
+  it('spans the first and last vertex across all segments', () => {
+    const segments = [
+      { path: [pt(100, 0, 0), pt(200, 1, 0)] },
+      { path: [pt(500, 2, 0), pt(900, 3, 0)] }
+    ]
+    expect(trackTimeBounds(segments)).toEqual([100, 900])
   })
 })
 
