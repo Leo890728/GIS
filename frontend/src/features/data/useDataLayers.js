@@ -1,18 +1,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createDataLayerState } from './dataLayerState'
 import { emptyFeatureCollection, fetchDataAggregate, fetchDataPoints } from './dataApi'
+import {
+  buildAggregatePayload,
+  buildPointQueryPayload,
+  getDueDynamicLayerKeys,
+  getDynamicPollInterval,
+  hasRangeRequestCodes,
+  isDynamicLayer
+} from './dataLayerQueries'
 import { applyDataStyleHandler } from './styleHandlers'
-
-const hasRangeFeatures = (geojson) =>
-  geojson?.type === 'FeatureCollection' && Array.isArray(geojson.features) && geojson.features.length > 0
-
-const hasRangeRequestCodes = (request) => {
-  if (!request || typeof request !== 'object') return false
-  return ['countyCodes', 'townCodes', 'villageCodes', 'statZoneCodes'].some((key) => {
-    const value = request[key]
-    return Array.isArray(value) && value.length > 0
-  })
-}
 
 const createDefaultAggregateState = () => ({
   loading: false,
@@ -40,13 +37,6 @@ const pickAggregateLayerEntry = (layerState) => {
   return activeEntries[0]
 }
 
-const isDynamicLayer = (layer) => layer?.dynamic?.enabled === true
-const getDynamicPollInterval = (layer) => {
-  const interval = Number(layer?.dynamic?.pollIntervalMs)
-  if (!Number.isFinite(interval) || interval <= 0) return 60000
-  return Math.max(5000, interval)
-}
-
 const createLayerRuntimeState = (layer) => ({
   isFetching: false,
   lastError: '',
@@ -58,43 +48,6 @@ const createLayerRuntimeState = (layer) => ({
 
 const buildInitialRuntimeMap = (layerState) =>
   Object.fromEntries(Object.entries(layerState || {}).map(([key, layer]) => [key, createLayerRuntimeState(layer)]))
-
-const buildAggregatePayload = (
-  layer,
-  selectedRangeGeoJson,
-  selectedRangeRequest,
-  rangePointFilterEnabled
-) => {
-  const query = layer.query || {}
-  const aggregate = layer.aggregate || {}
-  const payload = {
-    dataId: query.dataId || layer.dataId,
-    metrics: aggregate.metrics || ['count'],
-    ...(aggregate.groupBy ? { groupBy: aggregate.groupBy } : {}),
-    ...(query.filters ? { filters: query.filters } : {}),
-    ...(query.bbox ? { bbox: query.bbox } : {}),
-    ...(query.sinceTimestamp ? { sinceTimestamp: query.sinceTimestamp } : {})
-  }
-
-  if (
-    rangePointFilterEnabled === true &&
-    aggregate.useRangeRequest &&
-    selectedRangeRequest &&
-    typeof selectedRangeRequest === 'object'
-  ) {
-    Object.assign(payload, selectedRangeRequest)
-  } else if (rangePointFilterEnabled === true) {
-    payload.range = hasRangeFeatures(selectedRangeGeoJson) ? selectedRangeGeoJson : emptyFeatureCollection()
-  } else if (query.range) {
-    payload.range = query.range
-  }
-
-  if (aggregate.query && typeof aggregate.query === 'object') {
-    Object.assign(payload, aggregate.query)
-  }
-
-  return payload
-}
 
 export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRangeRequestRef = null) => {
   const dataLayerState = ref(createDataLayerState(apiBaseUrl))
@@ -116,29 +69,12 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
   const simulatorLayerKey = ref(null)
   const simulatorPriorActive = new Map()
 
-  const buildPointQueryPayload = (layer) => {
-    const query = layer.query || {}
-    const payload = { ...query }
-    delete payload.endpoint
-    delete payload.useRangeRequest
-    if (
-      rangePointFilterEnabled.value === true &&
-      query.useRangeRequest &&
-      selectedRangeRequestRef?.value &&
-      typeof selectedRangeRequestRef.value === 'object'
-    ) {
-      Object.assign(payload, selectedRangeRequestRef.value)
-    }
-    if (!rangePointFilterEnabled.value) {
-      return payload
-    }
-    if (hasRangeFeatures(selectedRangeGeoJsonRef?.value)) {
-      payload.range = selectedRangeGeoJsonRef.value
-    } else {
-      payload.range = emptyFeatureCollection()
-    }
-    return payload
-  }
+  const pointQueryPayloadFor = (layer) =>
+    buildPointQueryPayload(layer, {
+      rangePointFilterEnabled: rangePointFilterEnabled.value,
+      selectedRangeGeoJson: selectedRangeGeoJsonRef?.value,
+      selectedRangeRequest: selectedRangeRequestRef?.value
+    })
 
   const syncLayerRuntimeState = () => {
     const layerKeys = new Set(Object.keys(dataLayerState.value))
@@ -210,7 +146,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
 
     try {
       const queryEndpoint = layer?.query?.endpoint || '/data/query'
-      const geojson = await fetchDataPoints(apiBaseUrl, buildPointQueryPayload(layer), queryEndpoint)
+      const geojson = await fetchDataPoints(apiBaseUrl, pointQueryPayloadFor(layer), queryEndpoint)
       const styledGeojson = applyDataStyleHandler(geojson, layer)
       if (layerRequestSequence.get(key) !== nextSequence) return false
       dataLayerGeoJson.value[key] = styledGeojson
@@ -333,18 +269,6 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
     dynamicPollingTimer = null
   }
 
-  const getDueDynamicLayerKeys = () => {
-    const now = Date.now()
-    return Object.entries(dataLayerState.value)
-      .filter(([key, layer]) => layer.active && isDynamicLayer(layer) && dataLayerRuntime.value[key])
-      .filter(([key]) => key !== simulatorLayerKey.value)
-      .filter(([key]) => {
-        const runtime = dataLayerRuntime.value[key]
-        return runtime.nextRefreshAt == null || runtime.nextRefreshAt <= now
-      })
-      .map(([key]) => key)
-  }
-
   const setupDynamicPolling = () => {
     clearDynamicPolling()
     syncLayerRuntimeState()
@@ -354,7 +278,9 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
 
     dynamicPollingTimer = setInterval(() => {
       if (dynamicPollingBusy) return
-      const dueKeys = getDueDynamicLayerKeys()
+      const dueKeys = getDueDynamicLayerKeys(dataLayerState.value, dataLayerRuntime.value, {
+        simulatorLayerKey: simulatorLayerKey.value
+      })
       if (!dueKeys.length) return
 
       dynamicPollingBusy = true
