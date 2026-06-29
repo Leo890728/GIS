@@ -67,40 +67,60 @@ class DatasetService:
         interval = int(source.get("refresh_seconds", 600))
         now = self.now_func()
         expires_at = entry.get("expires_at")
-        has_valid_cached_features = self._entry_has_valid_features(entry)
 
-        if not force and expires_at and expires_at > now and has_valid_cached_features:
+        if not force and expires_at and expires_at > now and self._entry_has_valid_features(entry):
             return entry["features"]
 
         try:
-            adapter = self._resolve_adapter(source)
-            payload = adapter.fetch_payload(self._execute_fetch, source)
-            rows = adapter.extract_rows(payload, source)
-            features = self._rows_to_features(rows, source.get("fields", {}))
-            entry["features"] = features
-            entry["last_error"] = None
-            entry["last_success_at"] = now
-            if self.cache_db:
-                self.cache_db.save_dataset(
-                    data_id, features, now, now, now + timedelta(seconds=interval)
-                )
-            self._record_history(data_id, source, features, now)
-        except Exception as err:  # pragma: no cover
-            entry["last_error"] = str(err)
-            if not self._entry_has_valid_features(entry):
-                # in-memory cache is absent/invalid; try SQLite as last resort
-                if self.cache_db:
-                    stored = self.cache_db.load_dataset(data_id)
-                    if stored is not None and self._entry_has_valid_features(stored):
-                        entry.update(stored)
-            if not self._entry_has_valid_features(entry):
-                entry.pop("features", None)
-                raise RuntimeError(f"Failed to load dataset {data_id}: {err}") from err
+            features = self._load_fresh_dataset(source)
+            self._commit_refresh_success(data_id, source, entry, features, now, interval)
+        except Exception as err:
+            self._commit_refresh_failure(data_id, entry, err)
         finally:
-            entry["last_updated_at"] = now
-            entry["expires_at"] = now + timedelta(seconds=interval)
+            # Whether the upstream load succeeded or we fell back to cache, the
+            # entry has now been (re)evaluated: schedule the next refresh window.
+            self._mark_refresh_attempt(entry, now, interval)
 
         return entry["features"]
+
+    def _load_fresh_dataset(self, source):
+        """Fetch upstream and build features. Raises on any fetch/transform error."""
+        adapter = self._resolve_adapter(source)
+        payload = adapter.fetch_payload(self._execute_fetch, source)
+        rows = adapter.extract_rows(payload, source)
+        return self._rows_to_features(rows, source.get("fields", {}))
+
+    def _commit_refresh_success(self, data_id, source, entry, features, now, interval):
+        """Store freshly loaded features, persist to cache, and record history."""
+        entry["features"] = features
+        entry["last_error"] = None
+        entry["last_success_at"] = now
+        if self.cache_db:
+            self.cache_db.save_dataset(
+                data_id, features, now, now, now + timedelta(seconds=interval)
+            )
+        self._record_history(data_id, source, features, now)
+
+    def _commit_refresh_failure(self, data_id, entry, err):
+        """Record the error and fall back to cache; re-raise if nothing usable."""
+        entry["last_error"] = str(err)
+        self._fallback_cached_dataset(data_id, entry)
+        if not self._entry_has_valid_features(entry):
+            entry.pop("features", None)
+            raise RuntimeError(f"Failed to load dataset {data_id}: {err}") from err
+
+    def _fallback_cached_dataset(self, data_id, entry):
+        """When the in-memory entry is absent/invalid, try SQLite as last resort."""
+        if self._entry_has_valid_features(entry) or not self.cache_db:
+            return
+        stored = self.cache_db.load_dataset(data_id)
+        if stored is not None and self._entry_has_valid_features(stored):
+            entry.update(stored)
+
+    @staticmethod
+    def _mark_refresh_attempt(entry, now, interval):
+        entry["last_updated_at"] = now
+        entry["expires_at"] = now + timedelta(seconds=interval)
 
     def query(self, data_id, payload):
         features = self.refresh(data_id)
