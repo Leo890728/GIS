@@ -70,6 +70,21 @@ export const normalizeTrackSegments = (track) =>
     }))
     .filter((seg) => seg.path.length > 0)
 
+// Normalize the raw /track stream payload into smooth-playback tracks:
+// `{ key, properties, segments: [{ path: [{ tMs, lng, lat }] }], samples }`.
+// Tracks with no usable segment are dropped.
+export const normalizeSmoothTracks = (tracks) =>
+  (tracks || [])
+    .map((track) => ({
+      key: track.key,
+      properties: track.properties || {},
+      segments: normalizeTrackSegments(track),
+      samples: (track.samples || [])
+        .map((sample) => ({ tMs: new Date(sample.t).getTime(), properties: sample.properties || {} }))
+        .filter((sample) => Number.isFinite(sample.tMs))
+    }))
+    .filter((track) => track.segments.length > 0)
+
 export const segmentsToLineGeoJson = (segments) => {
   const features = segments
     .map((seg) => seg.path.map((point) => [point.lng, point.lat]))

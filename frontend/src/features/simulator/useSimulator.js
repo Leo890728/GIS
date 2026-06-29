@@ -4,11 +4,13 @@ import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, fetchHistoryTrac
 import {
   activePropertiesAt,
   interpolateSegmentsAt,
+  normalizeSmoothTracks,
   normalizeTrackSegments,
   segmentsToEndpointsGeoJson,
   segmentsToLineGeoJson,
   traveledCoords
 } from './trackInterpolation'
+import { deriveSessionSegments, nearestFrame } from './playbackTimeline'
 import { useSimulatorShortcuts } from './useSimulatorShortcuts'
 
 const SMOOTH_RENDER_INTERVAL_MS = 40
@@ -116,16 +118,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     lastTickReal = null
   }
 
-  const nearestFrameMs = (ms) => {
-    if (!state.frames.length) return ms
-    let lo = state.frames[0]
-    for (const frame of state.frames) {
-      if (frame <= ms) lo = frame
-      else break
-    }
-    return lo
-  }
-
   const getFrame = async (ms) => {
     if (frameCache.has(ms)) return frameCache.get(ms)
     const geojson = await fetchHistoryAt(apiBaseUrl, state.dataId, ms)
@@ -162,7 +154,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   }
 
   const applyActiveFrame = (force = false) => {
-    const target = nearestFrameMs(state.currentTime)
+    const target = nearestFrame(state.frames, state.currentTime)
     if (!force && target === activeFrameMs) return
     activeFrameMs = target
     showFrame(target)
@@ -204,22 +196,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
           state.smoothProgress = { done: Number(done) || 0, total: Number(total) || 0 }
         }
       })
-      smoothTracks = (response?.tracks || [])
-        .map((track) => ({
-          key: track.key,
-          properties: track.properties || {},
-          segments: (track.segments || [])
-            .map((seg) => ({
-              path: (seg.path || [])
-                .map((point) => ({ tMs: new Date(point.t).getTime(), lng: point.lng, lat: point.lat }))
-                .filter((point) => Number.isFinite(point.tMs))
-            }))
-            .filter((seg) => seg.path.length > 0),
-          samples: (track.samples || [])
-            .map((sample) => ({ tMs: new Date(sample.t).getTime(), properties: sample.properties || {} }))
-            .filter((sample) => Number.isFinite(sample.tMs))
-        }))
-        .filter((track) => track.segments.length > 0)
+      smoothTracks = normalizeSmoothTracks(response?.tracks)
       renderSmooth(state.currentTime)
       state.error = ''
     } catch (error) {
@@ -434,23 +411,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   }
 
   // Split the capture timeline into recording sessions on large gaps.
-  const deriveSegments = () => {
-    const frames = state.frames
-    if (!frames.length) return []
-    const gapMs = (Number(state.intervalSeconds) || 60) * 1000 * GLOBAL_GAP_FACTOR
-    const segments = []
-    let from = frames[0]
-    let prev = frames[0]
-    for (let i = 1; i < frames.length; i += 1) {
-      if (frames[i] - prev > gapMs) {
-        segments.push({ from, to: prev })
-        from = frames[i]
-      }
-      prev = frames[i]
-    }
-    segments.push({ from, to: prev })
-    return segments
-  }
+  const deriveSegments = () => deriveSessionSegments(state.frames, state.intervalSeconds, GLOBAL_GAP_FACTOR)
 
   const selectSegment = (index) => {
     if (!state.active) return
