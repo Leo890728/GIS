@@ -1,6 +1,13 @@
 // Pure timeline helpers for history playback: frame lookup and splitting the
 // capture timeline into recording sessions. No Vue reactivity or I/O.
 
+// Parse an ISO timestamp to epoch milliseconds, or null when absent/invalid.
+export const toMs = (iso) => {
+  if (!iso) return null
+  const ms = new Date(iso).getTime()
+  return Number.isFinite(ms) ? ms : null
+}
+
 // The latest frame at or before `ms` (frames must be ascending). Returns `ms`
 // unchanged when there are no frames.
 export const nearestFrame = (frames, ms) => {

@@ -1,16 +1,11 @@
 import { computed, onBeforeUnmount, reactive } from 'vue'
-import { applyDataStyleHandler } from '../data/styleHandlers'
-import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, streamHistoryTrack } from './simulatorApi'
-import {
-  activePropertiesAt,
-  interpolateSegmentsAt,
-  normalizeSmoothTracks
-} from './trackInterpolation'
-import { deriveSessionSegments, nearestFrame } from './playbackTimeline'
+import { fetchHistoryFrames, fetchHistoryRange } from './simulatorApi'
+import { deriveSessionSegments, toMs } from './playbackTimeline'
+import { useFrameRenderer } from './useFrameRenderer'
+import { useSmoothRenderer } from './useSmoothRenderer'
 import { useSelectedTrack } from './useSelectedTrack'
+import { useLiveMode } from './useLiveMode'
 import { useSimulatorShortcuts } from './useSimulatorShortcuts'
-
-const SMOOTH_RENDER_INTERVAL_MS = 40
 
 const SPEED_PRESETS = [1, 10, 30, 60]
 const DEFAULT_SPEED = 30
@@ -18,12 +13,6 @@ const DEFAULT_SPEED = 30
 // A gap between captures longer than this many poll cycles is treated as a
 // recording interruption that splits the timeline into separate sessions.
 const GLOBAL_GAP_FACTOR = 4
-
-const toMs = (iso) => {
-  if (!iso) return null
-  const ms = new Date(iso).getTime()
-  return Number.isFinite(ms) ? ms : null
-}
 
 const createState = () => ({
   active: false,
@@ -61,10 +50,13 @@ const createState = () => ({
 /**
  * Drives history playback by taking over the matching live data layer.
  *
- * Playback advances a virtual clock with requestAnimationFrame; the rendered
- * GeoJSON only changes when the clock crosses into a new capture (frame), so
- * the network cost is one request per capture (cached + prefetched), not per
- * animation tick. Smooth between-capture motion is Phase 5 (OSRM tracks).
+ * Architecture: the orchestrator owns the reactive `state` and a virtual clock
+ * (requestAnimationFrame). Rendering is delegated to two interchangeable
+ * strategies behind a single `renderAt(ms)` dispatch — `useFrameRenderer`
+ * (per-capture GeoJSON, cached + prefetched) and `useSmoothRenderer` (OSRM
+ * road-following interpolation). Selection/trajectory overlay, live mode, and
+ * keyboard shortcuts are their own composables; this module wires them together
+ * and exposes the public simulator API.
  *
  * @param apiBaseUrl backend base URL
  * @param dataLayers subset of useDataLayers: { getSimulatorCandidates, enterSimulator, exitSimulator, setSimulatorGeoJson }
@@ -73,171 +65,55 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   const state = reactive(createState())
   const candidates = computed(() => dataLayers.getSimulatorCandidates())
 
+  // The live data layer the simulator is currently driving; both renderers style
+  // their output with it.
   let layerEntry = null
-  let frameSequence = 0
-  let frameCache = new Map()
-  let activeFrameMs = null
   let rafId = null
   let lastTickReal = null
   let debounceTimer = null
-  let smoothTracks = []
-  let lastSmoothRenderReal = 0
-  let smoothAbort = null
-  let liveTimer = null
 
-  // Selected entity + trajectory overlay + auto-follow. Created early so its
-  // syncSelectedPosition/updateTrackProgress/clearSelection are available to the
-  // frame, smooth, clock, and live functions defined below.
-  const {
-    updateTrackProgress,
-    clearSelection,
-    selectFeature,
-    syncSelectedPosition,
-    toggleSelectedTrack,
-    toggleAutoFollow,
-    reset: resetSelectedTrack
-  } = useSelectedTrack({ apiBaseUrl, state, getSmoothTracks: () => smoothTracks })
+  // --- Rendering strategies + selection overlay ------------------------------
 
-  const stopLive = () => {
-    if (liveTimer) {
-      clearInterval(liveTimer)
-      liveTimer = null
-    }
+  const selectedTrack = useSelectedTrack({
+    apiBaseUrl,
+    state,
+    getSmoothTracks: () => smooth.getTracks()
+  })
+
+  const frame = useFrameRenderer({
+    apiBaseUrl,
+    state,
+    dataLayers,
+    getLayerEntry: () => layerEntry,
+    syncSelectedPosition: selectedTrack.syncSelectedPosition
+  })
+
+  const smooth = useSmoothRenderer({
+    apiBaseUrl,
+    state,
+    dataLayers,
+    getLayerEntry: () => layerEntry,
+    syncSelectedPosition: selectedTrack.syncSelectedPosition
+  })
+
+  // Single render dispatch: pick the active strategy, then advance the trajectory
+  // overlay. `realNow` (a RAF timestamp) throttles smooth playback; omit it for
+  // immediate renders. `force` re-applies the current frame even if unchanged.
+  const renderAt = (ms, { force = false, realNow = null } = {}) => {
+    if (state.smooth && smooth.hasTracks()) smooth.renderTick(ms, realNow)
+    else frame.applyActiveFrame(force)
+    selectedTrack.updateTrackProgress()
   }
 
-  const exitLive = () => {
-    if (state.mode === 'live') {
-      state.mode = 'history'
-      stopLive()
-    }
-  }
+  const renderCurrent = (force = false) => renderAt(state.currentTime, { force })
 
-  const abortSmoothLoad = () => {
-    if (smoothAbort) {
-      smoothAbort.abort()
-      smoothAbort = null
-    }
-  }
+  // --- Virtual clock ---------------------------------------------------------
 
   const stopRaf = () => {
     if (rafId) cancelAnimationFrame(rafId)
     rafId = null
     lastTickReal = null
   }
-
-  const getFrame = async (ms) => {
-    if (frameCache.has(ms)) return frameCache.get(ms)
-    const geojson = await fetchHistoryAt(apiBaseUrl, state.dataId, ms)
-    const styled = applyDataStyleHandler(geojson, layerEntry)
-    frameCache.set(ms, styled)
-    return styled
-  }
-
-  const prefetchNext = (ms) => {
-    const index = state.frames.indexOf(ms)
-    if (index >= 0 && index + 1 < state.frames.length) {
-      const next = state.frames[index + 1]
-      if (!frameCache.has(next)) getFrame(next).catch(() => {})
-    }
-  }
-
-  const showFrame = async (ms) => {
-    const sequence = ++frameSequence
-    state.loading = true
-    try {
-      const styled = await getFrame(ms)
-      if (sequence !== frameSequence) return
-      dataLayers.setSimulatorGeoJson(styled)
-      state.featureCount = Array.isArray(styled?.features) ? styled.features.length : 0
-      syncSelectedPosition(styled?.features)
-      state.error = ''
-    } catch (error) {
-      if (sequence !== frameSequence) return
-      console.error(error)
-      state.error = 'Failed to load frame.'
-    } finally {
-      if (sequence === frameSequence) state.loading = false
-    }
-  }
-
-  const applyActiveFrame = (force = false) => {
-    const target = nearestFrame(state.frames, state.currentTime)
-    if (!force && target === activeFrameMs) return
-    activeFrameMs = target
-    showFrame(target)
-    prefetchNext(target)
-  }
-
-  // --- Smooth (OSRM road-following) playback ---------------------------------
-
-  const renderSmooth = (ms) => {
-    if (!smoothTracks.length) return
-    const features = []
-    for (const track of smoothTracks) {
-      const position = interpolateSegmentsAt(track.segments, ms)
-      if (!position) continue
-      features.push({
-        type: 'Feature',
-        properties: { ...activePropertiesAt(track.samples, ms), __trackKey: track.key },
-        geometry: { type: 'Point', coordinates: position }
-      })
-    }
-    const styled = applyDataStyleHandler({ type: 'FeatureCollection', features }, layerEntry)
-    dataLayers.setSimulatorGeoJson(styled)
-    state.featureCount = features.length
-    syncSelectedPosition(features)
-  }
-
-  const loadTracks = async () => {
-    if (!state.dataId) return
-    abortSmoothLoad()
-    smoothAbort = new AbortController()
-    const controller = smoothAbort
-    state.loading = true
-    state.smoothing = true
-    state.smoothProgress = { done: 0, total: 0 }
-    try {
-      const response = await streamHistoryTrack(apiBaseUrl, state.dataId, state.from, state.to, {
-        signal: controller.signal,
-        onProgress: ({ done, total }) => {
-          state.smoothProgress = { done: Number(done) || 0, total: Number(total) || 0 }
-        }
-      })
-      smoothTracks = normalizeSmoothTracks(response?.tracks)
-      renderSmooth(state.currentTime)
-      state.error = ''
-    } catch (error) {
-      if (error?.name === 'AbortError' || controller.signal.aborted) return
-      console.error(error)
-      state.error = 'Failed to load smooth tracks.'
-    } finally {
-      if (smoothAbort === controller) smoothAbort = null
-      if (!controller.signal.aborted) {
-        state.smoothing = false
-        state.loading = false
-      }
-    }
-  }
-
-  const renderCurrent = (force = false) => {
-    if (state.smooth && smoothTracks.length) renderSmooth(state.currentTime)
-    else applyActiveFrame(force)
-    updateTrackProgress()
-  }
-
-  const setSmooth = async (enabled) => {
-    state.smooth = enabled === true
-    if (state.smooth) {
-      await loadTracks()
-    } else {
-      abortSmoothLoad()
-      state.smoothing = false
-      smoothTracks = []
-      applyActiveFrame(true)
-    }
-  }
-
-  const toggleSmooth = () => setSmooth(!state.smooth)
 
   const tick = (nowReal) => {
     if (!state.playing) {
@@ -256,21 +132,13 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       return
     }
     state.currentTime = next
-    if (state.smooth && smoothTracks.length) {
-      if (nowReal - lastSmoothRenderReal >= SMOOTH_RENDER_INTERVAL_MS) {
-        lastSmoothRenderReal = nowReal
-        renderSmooth(state.currentTime)
-      }
-    } else {
-      applyActiveFrame()
-    }
-    updateTrackProgress()
+    renderAt(state.currentTime, { realNow: nowReal })
     rafId = requestAnimationFrame(tick)
   }
 
   const play = () => {
     if (!state.active || state.currentTime == null) return
-    exitLive()
+    live.exitLive()
     if (state.currentTime >= state.playTo) state.currentTime = state.playFrom
     state.playing = true
     lastTickReal = null
@@ -294,13 +162,13 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stepFrame = (direction) => {
     pause()
-    exitLive()
+    live.exitLive()
     const lo = state.playFrom ?? state.from
     const hi = state.playTo ?? state.to
-    const frames = state.frames.filter((frame) => frame >= lo && frame <= hi)
+    const frames = state.frames.filter((value) => value >= lo && value <= hi)
     if (!frames.length) return
-    let index = frames.indexOf(activeFrameMs)
-    if (index < 0) index = frames.findIndex((frame) => frame >= state.currentTime)
+    let index = frames.indexOf(frame.getActiveFrameMs())
+    if (index < 0) index = frames.findIndex((value) => value >= state.currentTime)
     if (index < 0) index = frames.length - 1
     index = Math.min(frames.length - 1, Math.max(0, index + (direction >= 0 ? 1 : -1)))
     state.currentTime = frames[index]
@@ -310,26 +178,54 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   const setTime = (ms) => {
     if (!state.active || state.playFrom == null || state.playTo == null) return
     pause()
-    exitLive()
+    live.exitLive()
     const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
     state.currentTime = clamped
-    updateTrackProgress()
-    if (state.smooth && smoothTracks.length) {
-      renderSmooth(clamped)
+    selectedTrack.updateTrackProgress()
+    if (state.smooth && smooth.hasTracks()) {
+      smooth.renderSmooth(clamped)
       return
     }
     if (debounceTimer) clearTimeout(debounceTimer)
-    debounceTimer = setTimeout(() => applyActiveFrame(), 80)
+    debounceTimer = setTimeout(() => frame.applyActiveFrame(), 80)
   }
+
+  // --- Smooth playback toggle ------------------------------------------------
+
+  const setSmooth = async (enabled) => {
+    state.smooth = enabled === true
+    if (state.smooth) {
+      await smooth.loadTracks()
+    } else {
+      smooth.abortLoad()
+      state.smoothing = false
+      smooth.reset()
+      frame.applyActiveFrame(true)
+    }
+  }
+
+  const toggleSmooth = () => setSmooth(!state.smooth)
+
+  // --- Sessions / live -------------------------------------------------------
 
   // Split the capture timeline into recording sessions on large gaps.
   const deriveSegments = () => deriveSessionSegments(state.frames, state.intervalSeconds, GLOBAL_GAP_FACTOR)
 
+  const live = useLiveMode({
+    apiBaseUrl,
+    state,
+    deriveSegments,
+    applyActiveFrame: frame.applyActiveFrame,
+    pausePlayback: () => pause(),
+    smooth,
+    clearSelection: selectedTrack.clearSelection
+  })
+
   const selectSegment = (index) => {
     if (!state.active) return
     pause()
-    exitLive()
-    clearSelection()
+    live.exitLive()
+    selectedTrack.clearSelection()
     const segment = state.segments[index]
     if (segment) {
       state.selectedSegmentIndex = index
@@ -345,71 +241,16 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     renderCurrent(true)
   }
 
-  // --- Live mode -------------------------------------------------------------
-  // Pins the clock to the leading edge and polls for newly recorded captures.
-  const pollLive = async () => {
-    if (state.mode !== 'live' || !state.dataId) return
-    try {
-      const range = await fetchHistoryRange(apiBaseUrl, state.dataId)
-      const newTo = toMs(range?.to)
-      if (newTo == null) return
-      if (newTo > state.to) {
-        state.to = newTo
-        state.count = Number(range.count) || state.count
-        const framesResponse = await fetchHistoryFrames(apiBaseUrl, state.dataId)
-        if (Array.isArray(framesResponse?.frames)) {
-          state.frames = framesResponse.frames.map(toMs).filter((value) => value != null)
-        }
-        state.segments = deriveSegments()
-      }
-      // Keep the clock pinned to "now".
-      state.playFrom = state.from
-      state.playTo = state.to
-      state.currentTime = state.to
-      applyActiveFrame(true)
-    } catch (error) {
-      console.error(error)
-    }
-  }
-
-  const startLive = () => {
-    stopLive()
-    const everyMs = Math.max(15000, (Number(state.intervalSeconds) || 60) * 1000)
-    liveTimer = setInterval(pollLive, everyMs)
-  }
-
-  const toggleLive = () => {
-    if (state.mode === 'live') {
-      exitLive()
-      return
-    }
-    pause()
-    // Live follows the leading edge as frames; smooth tracks would be stale.
-    abortSmoothLoad()
-    state.smoothing = false
-    state.smooth = false
-    smoothTracks = []
-    state.selectedSegmentIndex = -1
-    clearSelection()
-    state.mode = 'live'
-    state.playFrom = state.from
-    state.playTo = state.to
-    state.currentTime = state.to
-    applyActiveFrame(true)
-    pollLive()
-    startLive()
-  }
-
   // Zoom/pan the visible playback window. Sessions remain quick-jump presets;
   // any custom window clears the active session highlight.
-  const setWindow = (fromMs, toMs) => {
+  const setWindow = (fromMs, toMsArg) => {
     if (!state.active || state.from == null || state.to == null) return
     pause()
-    exitLive()
-    clearSelection()
+    live.exitLive()
+    selectedTrack.clearSelection()
     const minSpan = Math.max((Number(state.intervalSeconds) || 60) * 1000 * 2, 1000)
-    let lo = Math.max(state.from, Math.min(Number(fromMs), Number(toMs)))
-    let hi = Math.min(state.to, Math.max(Number(fromMs), Number(toMs)))
+    let lo = Math.max(state.from, Math.min(Number(fromMs), Number(toMsArg)))
+    let hi = Math.min(state.to, Math.max(Number(fromMs), Number(toMsArg)))
     if (hi - lo < minSpan) {
       const mid = (lo + hi) / 2
       lo = Math.max(state.from, mid - minSpan / 2)
@@ -426,8 +267,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   const selectDataset = async (dataId) => {
     if (!dataId) return
     pause()
-    exitLive()
-    clearSelection()
+    live.exitLive()
+    selectedTrack.clearSelection()
     state.loading = true
     state.error = ''
     try {
@@ -444,9 +285,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
         return
       }
       layerEntry = entry
-      frameCache = new Map()
-      activeFrameMs = null
-      smoothTracks = []
+      frame.reset()
+      smooth.reset()
 
       const framesResponse = await fetchHistoryFrames(apiBaseUrl, dataId)
       state.active = true
@@ -465,9 +305,9 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.currentTime = state.to
       state.mode = 'history'
       if (state.smooth) {
-        await loadTracks()
+        await smooth.loadTracks()
       } else {
-        applyActiveFrame(true)
+        frame.applyActiveFrame(true)
       }
     } catch (error) {
       console.error(error)
@@ -479,21 +319,20 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stop = () => {
     pause()
-    abortSmoothLoad()
-    stopLive()
+    smooth.abortLoad()
+    live.stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
-    frameSequence += 1
-    frameCache = new Map()
-    activeFrameMs = null
-    smoothTracks = []
-    resetSelectedTrack()
+    frame.invalidate()
+    frame.reset()
+    smooth.reset()
+    selectedTrack.reset()
     dataLayers.exitSimulator()
     layerEntry = null
     Object.assign(state, createState())
   }
 
-  // Global transport shortcuts (active only during playback; ignored while a
-  // form control or the timeline slider has focus so it doesn't double-fire).
+  // --- Global transport shortcuts --------------------------------------------
+
   useSimulatorShortcuts({
     isActive: () => state.active,
     togglePlay,
@@ -504,8 +343,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   onBeforeUnmount(() => {
     stopRaf()
-    abortSmoothLoad()
-    stopLive()
+    smooth.abortLoad()
+    live.stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
   })
 
@@ -521,11 +360,11 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     toggleSimulatorSmooth: toggleSmooth,
     selectSimulatorSegment: selectSegment,
     setSimulatorWindow: setWindow,
-    toggleSimulatorLive: toggleLive,
-    toggleSimulatorAutoFollow: toggleAutoFollow,
-    selectSimulatorFeature: selectFeature,
-    clearSimulatorSelection: clearSelection,
-    toggleSimulatorTrack: toggleSelectedTrack,
+    toggleSimulatorLive: live.toggleLive,
+    toggleSimulatorAutoFollow: selectedTrack.toggleAutoFollow,
+    selectSimulatorFeature: selectedTrack.selectFeature,
+    clearSimulatorSelection: selectedTrack.clearSelection,
+    toggleSimulatorTrack: selectedTrack.toggleSelectedTrack,
     stopSimulator: stop
   }
 }

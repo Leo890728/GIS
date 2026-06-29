@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { deriveSessionSegments, nearestFrame } from './playbackTimeline'
+import { deriveSessionSegments, nearestFrame, toMs } from './playbackTimeline'
+
+describe('toMs', () => {
+  it('returns null for falsy or invalid input', () => {
+    expect(toMs(null)).toBeNull()
+    expect(toMs('')).toBeNull()
+    expect(toMs('not-a-date')).toBeNull()
+  })
+
+  it('parses an ISO timestamp to epoch ms', () => {
+    const iso = '2026-06-18T08:00:00.000Z'
+    expect(toMs(iso)).toBe(new Date(iso).getTime())
+  })
+})
 
 describe('nearestFrame', () => {
   it('returns ms unchanged when there are no frames', () => {
