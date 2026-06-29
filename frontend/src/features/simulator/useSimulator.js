@@ -1,16 +1,13 @@
 import { computed, onBeforeUnmount, reactive } from 'vue'
 import { applyDataStyleHandler } from '../data/styleHandlers'
-import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, fetchHistoryTrack, streamHistoryTrack } from './simulatorApi'
+import { fetchHistoryAt, fetchHistoryFrames, fetchHistoryRange, streamHistoryTrack } from './simulatorApi'
 import {
   activePropertiesAt,
   interpolateSegmentsAt,
-  normalizeSmoothTracks,
-  normalizeTrackSegments,
-  segmentsToEndpointsGeoJson,
-  segmentsToLineGeoJson,
-  traveledCoords
+  normalizeSmoothTracks
 } from './trackInterpolation'
 import { deriveSessionSegments, nearestFrame } from './playbackTimeline'
+import { useSelectedTrack } from './useSelectedTrack'
 import { useSimulatorShortcuts } from './useSimulatorShortcuts'
 
 const SMOOTH_RENDER_INTERVAL_MS = 40
@@ -87,9 +84,19 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let lastSmoothRenderReal = 0
   let smoothAbort = null
   let liveTimer = null
-  // Normalized [{ path: [{ tMs, lng, lat }] }] of the selected entity's drawn
-  // trajectory; used to recolor the traveled portion as the clock advances.
-  let selectedTrackSegments = null
+
+  // Selected entity + trajectory overlay + auto-follow. Created early so its
+  // syncSelectedPosition/updateTrackProgress/clearSelection are available to the
+  // frame, smooth, clock, and live functions defined below.
+  const {
+    updateTrackProgress,
+    clearSelection,
+    selectFeature,
+    syncSelectedPosition,
+    toggleSelectedTrack,
+    toggleAutoFollow,
+    reset: resetSelectedTrack
+  } = useSelectedTrack({ apiBaseUrl, state, getSmoothTracks: () => smoothTracks })
 
   const stopLive = () => {
     if (liveTimer) {
@@ -231,101 +238,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   }
 
   const toggleSmooth = () => setSmooth(!state.smooth)
-
-  // --- Point selection + single-entity trajectory ----------------------------
-
-  const updateTrackProgress = () => {
-    if (!selectedTrackSegments) return
-    const features = selectedTrackSegments
-      .map((seg) => traveledCoords(seg.path, state.currentTime))
-      .filter((coords) => coords.length >= 2)
-      .map((coords) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }))
-    state.trackTraveledGeoJson = { type: 'FeatureCollection', features }
-  }
-
-  const showTrack = (track) => {
-    const segments = normalizeTrackSegments(track)
-    const baseLine = segmentsToLineGeoJson(segments)
-    if (!baseLine) {
-      state.trackError = 'No trajectory for this point.'
-      return
-    }
-    selectedTrackSegments = segments
-    state.trackGeoJson = baseLine
-    state.trackEndpointsGeoJson = segmentsToEndpointsGeoJson(segments)
-    updateTrackProgress()
-  }
-
-  const hideTrack = () => {
-    selectedTrackSegments = null
-    state.trackGeoJson = null
-    state.trackTraveledGeoJson = null
-    state.trackEndpointsGeoJson = null
-  }
-
-  const clearSelection = () => {
-    state.selected = null
-    state.selectedPos = null
-    state.autoFollow = false
-    state.trackError = ''
-    hideTrack()
-  }
-
-  const selectFeature = (payload) => {
-    if (!payload || payload.key == null) {
-      clearSelection()
-      return
-    }
-    // Selecting a different entity invalidates any drawn trajectory.
-    if (state.selected?.key !== payload.key) hideTrack()
-    state.selected = payload
-    state.selectedPos = Array.isArray(payload.coordinates) ? payload.coordinates : null
-    state.trackError = ''
-  }
-
-  // Keep the selection highlight on the selected entity as the clock moves:
-  // pin the ring to its current-frame position (and recenter the map when
-  // auto-follow is on), or hide it when the entity is absent from this frame.
-  const syncSelectedPosition = (features) => {
-    if (!state.selected) return
-    const key = state.selected.key
-    const match = (features || []).find((feature) => feature?.properties?.__trackKey === key)
-    const coords = match?.geometry?.coordinates
-    state.selectedPos = Array.isArray(coords) ? coords : null
-    if (state.autoFollow && state.selectedPos) state.followCenter = state.selectedPos
-  }
-
-  // Toggle the selected entity's road-following trajectory overlay.
-  const toggleSelectedTrack = async () => {
-    if (!state.selected || !state.dataId) return
-    if (state.trackGeoJson) {
-      hideTrack()
-      return
-    }
-    const key = state.selected.key
-    // Reuse already-built smooth tracks when available to skip an OSRM round-trip.
-    const cached = smoothTracks.find((track) => track.key === key)
-    if (cached) {
-      showTrack(cached)
-      return
-    }
-    state.trackLoading = true
-    state.trackError = ''
-    try {
-      const lo = state.playFrom ?? state.from
-      const hi = state.playTo ?? state.to
-      const response = await fetchHistoryTrack(apiBaseUrl, state.dataId, lo, hi)
-      if (state.selected?.key !== key) return // selection changed mid-flight
-      const track = (response?.tracks || []).find((entry) => entry.key === key)
-      if (track) showTrack(track)
-      else state.trackError = 'No trajectory for this point.'
-    } catch (error) {
-      console.error(error)
-      state.trackError = 'Failed to load trajectory.'
-    } finally {
-      state.trackLoading = false
-    }
-  }
 
   const tick = (nowReal) => {
     if (!state.playing) {
@@ -488,17 +400,6 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     startLive()
   }
 
-  // Auto-follow recenters the map on the *selected* entity as it moves; the
-  // toggle lives in the Analytics panel and is only meaningful while a point is
-  // selected. Enabling it jumps to the selection's current position right away.
-  const toggleAutoFollow = () => {
-    if (!state.selected) return
-    state.autoFollow = !state.autoFollow
-    if (state.autoFollow && Array.isArray(state.selectedPos)) {
-      state.followCenter = [...state.selectedPos]
-    }
-  }
-
   // Zoom/pan the visible playback window. Sessions remain quick-jump presets;
   // any custom window clears the active session highlight.
   const setWindow = (fromMs, toMs) => {
@@ -585,7 +486,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     frameCache = new Map()
     activeFrameMs = null
     smoothTracks = []
-    selectedTrackSegments = null
+    resetSelectedTrack()
     dataLayers.exitSimulator()
     layerEntry = null
     Object.assign(state, createState())
