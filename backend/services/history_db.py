@@ -19,6 +19,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from backend.services.sqlite_util import connect as sqlite_connect
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS dataset_history (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -265,9 +267,7 @@ class HistoryDb:
             conn.executescript(_SCHEMA)
 
     def _connect(self):
-        conn = sqlite3.connect(self._path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return sqlite_connect(self._path)
 
 
 # ----------------------------------------------------------------------

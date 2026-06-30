@@ -1,0 +1,11 @@
+# Keep the build context small and avoid baking local artifacts into the image.
+**/__pycache__/
+**/*.pyc
+backend/.venv/
+backend/data/*.sqlite
+backend/data/*.sqlite-wal
+backend/data/*.sqlite-shm
+frontend/
+node_modules/
+.git/
+*.md

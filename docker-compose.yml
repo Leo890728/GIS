@@ -1,0 +1,39 @@
+# Splits the scheduled history capture into its own process so it is decoupled
+# from the web server and never duplicated by multi-worker gunicorn.
+#
+#   web      – serves the API; capture disabled (HISTORY_BACKGROUND_POLL=0)
+#   capture  – the only process that polls upstream and writes captures
+#
+# Both mount the same ./backend/data volume (cache.sqlite + history.sqlite are
+# written by both processes; WAL + busy_timeout make that safe). bounds.sqlite /
+# data.sqlite reference data must already exist under ./backend/data.
+#
+# OSRM (smooth tracks :5001, VRP :5002) is only needed by the web service. By
+# default the web container reaches an OSRM running on the host; override
+# HISTORY_OSRM_URL or run OSRM as its own service.
+
+services:
+  web:
+    build: .
+    command: gunicorn --bind 0.0.0.0:5000 --workers 2 "backend.app:create_app()"
+    ports:
+      - "5000:5000"
+    environment:
+      # Capture runs in the `capture` service, not here.
+      HISTORY_BACKGROUND_POLL: "0"
+      HISTORY_OSRM_URL: "${HISTORY_OSRM_URL:-http://host.docker.internal:5001}"
+      SPATIALITE_EXTENSION_PATH: "/usr/lib/x86_64-linux-gnu/mod_spatialite.so"
+    volumes:
+      - ./backend/data:/app/backend/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  capture:
+    build: .
+    command: python -m backend.worker
+    environment:
+      HISTORY_BACKGROUND_POLL: "1"
+    volumes:
+      - ./backend/data:/app/backend/data
+    restart: unless-stopped

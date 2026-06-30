@@ -7,9 +7,12 @@ history-enabled source at the source's ``refresh_seconds`` cadence and calls
 a capture in ``history.sqlite``.
 """
 
+import logging
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
+
+logger = logging.getLogger(__name__)
 
 
 def _make_job(dataset_service, data_id):
@@ -17,7 +20,7 @@ def _make_job(dataset_service, data_id):
         try:
             dataset_service.refresh(data_id, force=True)
         except Exception as err:  # pragma: no cover - upstream/network failure
-            print(f"[history-poller] {data_id} refresh failed: {err}")
+            logger.warning("%s refresh failed: %s", data_id, err)
 
     return job
 
@@ -47,5 +50,5 @@ def start_history_poller(dataset_service, sources):
         return None
 
     scheduler.start()
-    print(f"[history-poller] started ({job_count} dataset(s))")
+    logger.info("history-poller started (%d dataset(s))", job_count)
     return scheduler
