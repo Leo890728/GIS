@@ -57,7 +57,7 @@ import { buildTruckIcon } from './icons'
  *
  * @typedef {Object} TooltipConfig
  * @property {boolean}       [enabled=false]
- * @property {string}        [titleField='']
+ * @property {string}        [titleTemplate='']   title with `{field}` placeholders, e.g. '車牌 {car_licence}'
  * @property {TooltipItem[]} [items=[]]
  *
  * @typedef {Object} StyleConfig
@@ -100,7 +100,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       groupBy: 'car_no',
       summary: { sumField: '', sumLabel: 'Sum', avgField: 'status', avgLabel: 'Avg status' }
     },
-    dynamic: { enabled: true, pollIntervalMs: 60000 },
+    dynamic: { enabled: true, pollIntervalMs: 15000 },
     supportedModes: ['points'],
     icons: [
       { id: 'tcg-v2-fallback', builder: buildTruckIcon, options: { color: '#5ec8f2' } },
@@ -157,7 +157,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
     },
     tooltip: {
       enabled: true,
-      titleField: 'car_licence',
+      titleTemplate: '{car_licence}',
       items: [
         { label: 'Car', field: 'car_licence' },
         { label: 'Time', field: 'dt', format: 'datetime' },
@@ -195,7 +195,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
     icons: [{ id: 'incinerator', src: '/icons/incinerator.png' }],
     tooltip: {
       enabled: true,
-      titleField: 'icnrtname',
+      titleTemplate: '{icnrtname}',
       items: [
         { label: '焚化廠名稱', field: 'icnrtname' },
         { label: '地址', field: 'budadd' },
@@ -239,7 +239,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
     styleHandler: { handler: statZonePopulationStyle },
     tooltip: {
       enabled: true,
-      titleField: 'name_zh',
+      titleTemplate: '{name_zh}',
       items: [
         { label: 'Stat Zone', field: 'CODEBASE' },
         { label: 'Village', field: 'VILLAGE_CODE' },
@@ -283,7 +283,7 @@ const toLayerEntry = (entry) => {
     icons: Array.isArray(entry.icons) ? entry.icons : [],
     tooltip: {
       enabled: false,
-      titleField: '',
+      titleTemplate: '',
       items: [],
       ...(entry.tooltip || {})
     },

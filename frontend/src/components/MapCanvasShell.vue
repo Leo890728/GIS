@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import maplibregl from 'maplibre-gl'
 import { getDataLayerEntryByPointLayerId, getDataLayerIds, getDataPointLayerIds, useMapDataLayers } from './map/useMapDataLayers'
-import { formatTooltipItemValue } from '../features/data/formatters'
+import { formatTooltipItemValue, resolveTooltipTitle } from '../features/data/formatters'
 import { getBoundaryLayerIds, useMapLayers } from './map/useMapLayers'
 import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
 import { useMapRouteLayers } from './map/useMapRouteLayers'
@@ -253,9 +253,7 @@ const buildDataTooltipHtml = (entry, properties) => {
   const items = Array.isArray(tooltip.items) ? tooltip.items : []
   if (!items.length) return ''
 
-  const titleField = tooltip.titleField
-  const titleRawValue = titleField ? properties?.[titleField] : null
-  const titleValue = titleRawValue == null || titleRawValue === '' ? '' : String(titleRawValue)
+  const titleValue = resolveTooltipTitle(tooltip, properties)
   const rows = items.map((item) => {
     const label = item?.label || item?.field || ''
     const value = formatTooltipItemValue(item, properties)

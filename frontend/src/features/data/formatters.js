@@ -82,6 +82,20 @@ const resolveFormatKey = (item) => {
   return 'text'
 }
 
+/**
+ * Interpolate a template string, replacing `{field}` with the feature property.
+ * Missing/empty values render as an empty string. e.g. `'車牌 {car_licence}'`.
+ */
+export const interpolateTemplate = (template, properties) =>
+  String(template ?? '').replace(/\{([^}]+)\}/g, (_, key) => {
+    const value = properties?.[key.trim()]
+    return isEmpty(value) ? '' : String(value)
+  })
+
+/** Resolve a tooltip's title from its `titleTemplate` (trimmed). */
+export const resolveTooltipTitle = (tooltip, properties) =>
+  interpolateTemplate(tooltip?.titleTemplate, properties).trim()
+
 export const formatTooltipItemValue = (item, properties) => {
   if (!item || typeof item !== 'object') return DEFAULT_FALLBACK
   const rawValue = properties?.[item.field]
