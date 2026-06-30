@@ -42,17 +42,18 @@ export const interpolateSegmentsAt = (segments, ms) => {
   return [lp.lng, lp.lat]
 }
 
-// First/last timestamp across a track's segments, or null when it has no
-// points. Used to hide an entity before its first / after its last capture so
-// smooth playback doesn't leave it frozen at an endpoint outside its lifetime.
-export const trackTimeBounds = (segments) => {
-  if (!segments || !segments.length) return null
-  const firstPath = segments[0].path
-  const lastPath = segments[segments.length - 1].path
-  const first = firstPath?.[0]
-  const last = lastPath?.[lastPath.length - 1]
-  if (!first || !last) return null
-  return [first.tMs, last.tMs]
+// True when `ms` falls inside an actual recorded segment of the track (not in a
+// between-segment recording gap, and not before its first / after its last
+// capture). Used so smooth playback only shows an entity when it genuinely has
+// data near `ms`, instead of holding it frozen at a stale position across gaps.
+export const isWithinTrackSegment = (segments, ms) => {
+  if (!segments) return false
+  for (const seg of segments) {
+    const path = seg.path
+    if (!path || !path.length) continue
+    if (ms >= path[0].tMs && ms <= path[path.length - 1].tMs) return true
+  }
+  return false
 }
 
 // The most recent sample's properties at instant `ms` (step function, not

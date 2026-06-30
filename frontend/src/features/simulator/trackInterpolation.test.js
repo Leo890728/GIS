@@ -3,10 +3,10 @@ import {
   activePropertiesAt,
   interpolateInPath,
   interpolateSegmentsAt,
+  isWithinTrackSegment,
   normalizeTrackSegments,
   segmentsToEndpointsGeoJson,
   segmentsToLineGeoJson,
-  trackTimeBounds,
   traveledCoords
 } from './trackInterpolation'
 
@@ -37,18 +37,30 @@ describe('interpolateInPath', () => {
   })
 })
 
-describe('trackTimeBounds', () => {
-  it('returns null for empty/missing segments', () => {
-    expect(trackTimeBounds([])).toBeNull()
-    expect(trackTimeBounds(null)).toBeNull()
+describe('isWithinTrackSegment', () => {
+  const segments = [
+    { path: [pt(100, 0, 0), pt(200, 1, 0)] },
+    { path: [pt(500, 2, 0), pt(900, 3, 0)] }
+  ]
+
+  it('is false for empty/missing segments', () => {
+    expect(isWithinTrackSegment([], 150)).toBe(false)
+    expect(isWithinTrackSegment(null, 150)).toBe(false)
   })
 
-  it('spans the first and last vertex across all segments', () => {
-    const segments = [
-      { path: [pt(100, 0, 0), pt(200, 1, 0)] },
-      { path: [pt(500, 2, 0), pt(900, 3, 0)] }
-    ]
-    expect(trackTimeBounds(segments)).toEqual([100, 900])
+  it('is true inside a recorded segment (inclusive of endpoints)', () => {
+    expect(isWithinTrackSegment(segments, 100)).toBe(true)
+    expect(isWithinTrackSegment(segments, 150)).toBe(true)
+    expect(isWithinTrackSegment(segments, 900)).toBe(true)
+  })
+
+  it('is false before the first and after the last capture', () => {
+    expect(isWithinTrackSegment(segments, 50)).toBe(false)
+    expect(isWithinTrackSegment(segments, 1000)).toBe(false)
+  })
+
+  it('is false during a between-segment gap (no stale hold)', () => {
+    expect(isWithinTrackSegment(segments, 300)).toBe(false) // between 200 and 500
   })
 })
 

@@ -1,6 +1,6 @@
 import { applyDataStyleHandler } from '../data/styleHandlers'
 import { streamHistoryTrack } from './simulatorApi'
-import { activePropertiesAt, interpolateSegmentsAt, normalizeSmoothTracks, trackTimeBounds } from './trackInterpolation'
+import { activePropertiesAt, interpolateSegmentsAt, isWithinTrackSegment, normalizeSmoothTracks } from './trackInterpolation'
 
 // ~25fps cap for the between-capture interpolated render during continuous play.
 const SMOOTH_RENDER_INTERVAL_MS = 40
@@ -31,10 +31,10 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     if (!smoothTracks.length) return
     const features = []
     for (const track of smoothTracks) {
-      // Only render an entity within its own lifetime; outside it the entity is
-      // absent (matching frame mode), not frozen at an endpoint.
-      const bounds = trackTimeBounds(track.segments)
-      if (!bounds || ms < bounds[0] || ms > bounds[1]) continue
+      // Only render an entity when the clock is inside one of its recorded
+      // segments; outside its lifetime and during between-session gaps it is
+      // absent, never frozen at a stale (e.g. previous-day) position.
+      if (!isWithinTrackSegment(track.segments, ms)) continue
       const position = interpolateSegmentsAt(track.segments, ms)
       if (!position) continue
       features.push({
