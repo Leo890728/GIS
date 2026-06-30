@@ -12,11 +12,18 @@ from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from backend.services.capture_window import is_within_window, window_timezone
+
 logger = logging.getLogger(__name__)
 
 
-def _make_job(dataset_service, data_id):
+def _make_job(dataset_service, data_id, active_window=None):
     def job():
+        if active_window:
+            now_local = datetime.now(window_timezone(active_window))
+            if not is_within_window(now_local, active_window):
+                logger.debug("%s: outside active capture window, skipping", data_id)
+                return
         try:
             dataset_service.refresh(data_id, force=True)
         except Exception as err:  # pragma: no cover - upstream/network failure
@@ -34,8 +41,9 @@ def start_history_poller(dataset_service, sources):
         if not history.get("enabled"):
             continue
         interval = int(source.get("refresh_seconds", 600))
+        active_window = history.get("active_window")
         scheduler.add_job(
-            _make_job(dataset_service, data_id),
+            _make_job(dataset_service, data_id, active_window),
             trigger="interval",
             seconds=interval,
             id=f"history-poll-{data_id}",

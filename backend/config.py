@@ -77,6 +77,14 @@ DATA_SOURCES = {
 			"keyframe_interval": 50,
 			"retention_days": 7,
 			"osrm": HISTORY_OSRM,
+			# Only capture inside these hours (window-outside = no capture).
+			# Remove this block to capture 24/7. Ranges are HH:MM in `timezone`;
+			# `days` is optional; a range may span midnight (start > end).
+			# "active_window": {
+			#     "timezone": "Asia/Taipei",
+			#     "days": ["mon", "tue", "wed", "thu", "fri", "sat"],
+			#     "ranges": [["06:00", "20:00"]],
+			# },
 		},
 	},
     "stat_zone_population_points": {
