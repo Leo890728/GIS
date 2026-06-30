@@ -5,7 +5,7 @@ import { buildTruckIcon } from './icons'
  * Data source registry guide
  *
  * Use createDataSourceRegistry() to register each dataset shown in Data Panel.
- * Each top-level key is a local UI key (e.g. taichungGarbageDynamic), and
+ * Each top-level key is a local UI key (e.g. taichungGarbageDynamicV2), and
  * dataId must match backend /datasets entries.
  *
  * Minimal example:
@@ -85,79 +85,8 @@ import { buildTruckIcon } from './icons'
  * - tooltip items support formatters: text, number, datetime, enumMap, booleanMap.
  */
 const createDataSourceRegistry = (apiBaseUrl) => ({
-  taichungGarbageDynamic: {
-    label: 'Taichung Garbage & Recycling Trucks',
-    detail: 'taichung_garbage_recycling_dynamic',
-    dataId: 'taichung_garbage_recycling_dynamic',
-    sourceId: 'data-live-points-source',
-    layerId: 'data-live-points',
-    active: true,
-    query: {
-      filters: {},
-      limit: 5000
-    },
-    aggregate: {
-      metrics: ['count', 'sum:SpeedValue', 'avg:SpeedValue'],
-      groupBy: 'lineid',
-      summary: {
-        sumField: 'SpeedValue',
-        sumLabel: 'Speed Sum',
-        avgField: 'SpeedValue',
-        avgLabel: 'Avg speed'
-      }
-    },
-    dynamic: {
-      enabled: true,
-      pollIntervalMs: 600000
-    },
-    supportedModes: ['points', 'heatmap'],
-    icons: [
-      { id: 'tcg-v1-normal', builder: buildTruckIcon, options: { color: '#4ade80' } },
-      { id: 'tcg-v1-medium', builder: buildTruckIcon, options: { color: '#facc15' } },
-      { id: 'tcg-v1-fast', builder: buildTruckIcon, options: { color: '#fb923c' } },
-      { id: 'tcg-v1-overspeed', builder: buildTruckIcon, options: { color: '#ef4444' } }
-    ],
-    styleHandler: {
-      handler: taichungGarbageVehicle,
-      params: {
-        speedField: 'SpeedValue',
-        overSpeedField: 'OverSpeed',
-        normalColor: '#4ade80',
-        mediumColor: '#facc15',
-        fastColor: '#fb923c',
-        overSpeedColor: '#ef4444',
-        iconIds: {
-          normal: 'tcg-v1-normal',
-          medium: 'tcg-v1-medium',
-          fast: 'tcg-v1-fast',
-          overSpeed: 'tcg-v1-overspeed'
-        },
-        heatWeightBase: 1
-      }
-    },
-    tooltip: {
-      enabled: true,
-      titleField: 'car',
-      items: [
-        { label: 'Line', field: 'lineid' },
-        { label: 'Time', field: 'time', format: 'datetime' },
-        { label: 'Location', field: 'location' },
-        { label: 'Speed', field: 'SpeedValue', format: 'number', digits: 1, unit: 'km/h' },
-        { label: 'Over Speed', field: 'OverSpeedText' },
-        { label: 'Speed Band', field: 'SpeedBand' }
-      ]
-    },
-    style: {
-      mode: 'points',
-      color: '#f2c94c',
-      iconId: 'tcg-v1-normal',
-      pointSize: 6,
-      heatmapIntensity: 1,
-      weightProperty: 'SpeedValue'
-    }
-  },
   taichungGarbageDynamicV2: {
-    label: 'Taichung Garbage & Recycling Trucks (V2)',
+    label: '台中市垃圾清運',
     detail: 'taichung_garbage_recycling_dynamic_V2',
     dataId: 'taichung_garbage_recycling_dynamic_V2',
     sourceId: 'data-live-points-source-v2',

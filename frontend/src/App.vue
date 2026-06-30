@@ -7,6 +7,7 @@ import { useDataLayers } from './features/data/useDataLayers'
 import { useLayers } from './features/layers/useLayers'
 import { useRanges } from './features/ranges/useRanges'
 import { useRoutePlanner } from './features/route/useRoutePlanner'
+import { useSimulator } from './features/simulator/useSimulator'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 
@@ -31,8 +32,35 @@ const {
   toggleDataLayer,
   setDataLayerMode,
   refreshDataLayerByKey,
-  setRangePointFilterEnabled
+  setRangePointFilterEnabled,
+  getSimulatorCandidates,
+  enterSimulator,
+  exitSimulator,
+  setSimulatorGeoJson
 } = useDataLayers(API_BASE_URL, selectedRangeGeoJson, selectedRangeRequest)
+const {
+  simulatorState,
+  simulatorCandidates,
+  simulatorSpeeds,
+  selectSimulatorDataset,
+  setSimulatorTime,
+  toggleSimulatorPlay,
+  setSimulatorSpeed,
+  stepSimulatorFrame,
+  toggleSimulatorSmooth,
+  selectSimulatorSegment,
+  setSimulatorWindow,
+  toggleSimulatorLive,
+  toggleSimulatorAutoFollow,
+  selectSimulatorFeature,
+  toggleSimulatorTrack,
+  stopSimulator
+} = useSimulator(API_BASE_URL, {
+  getSimulatorCandidates,
+  enterSimulator,
+  exitSimulator,
+  setSimulatorGeoJson
+})
 const {
   routeForm,
   routeRuntime,
@@ -94,6 +122,9 @@ const handleToggleRouteLayer = (layerKey) => {
       :range-point-filter-enabled="rangePointFilterEnabled"
       :selected-range-ids="selectedRangeIds"
       :range-node-loading="rangeNodeLoading"
+      :simulator-state="simulatorState"
+      :simulator-candidates="simulatorCandidates"
+      :simulator-speeds="simulatorSpeeds"
       :collapsed="isSidebarCollapsed"
       @toggle-layer="toggleLayer"
       @update-layer-style="updateLayerStyle"
@@ -108,6 +139,14 @@ const handleToggleRouteLayer = (layerKey) => {
       @set-route-pick-mode="setPickMode"
       @solve-route="solveRoute"
       @clear-route="clearResult"
+      @select-simulator-dataset="selectSimulatorDataset"
+      @set-simulator-time="setSimulatorTime"
+      @toggle-simulator-play="toggleSimulatorPlay"
+      @set-simulator-speed="setSimulatorSpeed"
+      @step-simulator="stepSimulatorFrame"
+      @toggle-simulator-smooth="toggleSimulatorSmooth"
+      @select-simulator-segment="selectSimulatorSegment"
+      @stop-simulator="stopSimulator"
       @toggle-collapse="isSidebarCollapsed = !isSidebarCollapsed"
     />
 
@@ -123,10 +162,24 @@ const handleToggleRouteLayer = (layerKey) => {
         :route-anchor-geo-json="routeAnchorGeoJson"
         :route-layer-visibility="routeLayerVisibility"
         :route-pick-mode="pickMode"
+        :simulator-state="simulatorState"
+        :simulator-speeds="simulatorSpeeds"
         @toggle-layer="toggleLayer"
         @toggle-data-layer="toggleDataLayer"
         @toggle-route-layer="handleToggleRouteLayer"
         @route-map-click="handleMapDepotPick"
+        @simulator-set-time="setSimulatorTime"
+        @simulator-toggle-play="toggleSimulatorPlay"
+        @simulator-set-speed="setSimulatorSpeed"
+        @simulator-step="stepSimulatorFrame"
+        @simulator-toggle-smooth="toggleSimulatorSmooth"
+        @simulator-select-segment="selectSimulatorSegment"
+        @simulator-set-window="setSimulatorWindow($event.from, $event.to)"
+        @simulator-toggle-live="toggleSimulatorLive"
+        @simulator-toggle-follow="toggleSimulatorAutoFollow"
+        @simulator-select-feature="selectSimulatorFeature"
+        @simulator-toggle-track="toggleSimulatorTrack"
+        @simulator-stop="stopSimulator"
       />
     </main>
   </div>

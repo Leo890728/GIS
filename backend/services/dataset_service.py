@@ -4,8 +4,12 @@ import hashlib
 import httpx
 
 from backend.data_sources import ADAPTER_REGISTRY
+from backend.services.history_track_service import DEFAULT_OSRM_CONCURRENCY, build_entity_tracks
 from backend.services.point_aggregate import aggregate_grouped
 from backend.services.point_query import query_points
+
+# Smooth tracks split into a new segment when a gap exceeds this many poll cycles.
+HISTORY_GAP_FACTOR = 4
 
 
 def utc_now():
@@ -26,12 +30,15 @@ def to_float(value):
 
 
 class DatasetService:
-    def __init__(self, sources, fetcher=None, now_func=None, adapters=None, cache_db=None):
+    def __init__(self, sources, fetcher=None, now_func=None, adapters=None, cache_db=None, history_db=None, osrm_leg_router=None):
         self.sources = sources or {}
         self.fetcher = fetcher or self._default_fetcher
         self.now_func = now_func or utc_now
         self.adapters = adapters or ADAPTER_REGISTRY
         self.cache_db = cache_db
+        self.history_db = history_db
+        self.osrm_leg_router = osrm_leg_router
+        self._osrm_leg_cache = {}
         self._http_client = None
         self._cache = {}
         if cache_db:
@@ -60,39 +67,60 @@ class DatasetService:
         interval = int(source.get("refresh_seconds", 600))
         now = self.now_func()
         expires_at = entry.get("expires_at")
-        has_valid_cached_features = self._entry_has_valid_features(entry)
 
-        if not force and expires_at and expires_at > now and has_valid_cached_features:
+        if not force and expires_at and expires_at > now and self._entry_has_valid_features(entry):
             return entry["features"]
 
         try:
-            adapter = self._resolve_adapter(source)
-            payload = adapter.fetch_payload(self._execute_fetch, source)
-            rows = adapter.extract_rows(payload, source)
-            features = self._rows_to_features(rows, source.get("fields", {}))
-            entry["features"] = features
-            entry["last_error"] = None
-            entry["last_success_at"] = now
-            if self.cache_db:
-                self.cache_db.save_dataset(
-                    data_id, features, now, now, now + timedelta(seconds=interval)
-                )
-        except Exception as err:  # pragma: no cover
-            entry["last_error"] = str(err)
-            if not self._entry_has_valid_features(entry):
-                # in-memory cache is absent/invalid; try SQLite as last resort
-                if self.cache_db:
-                    stored = self.cache_db.load_dataset(data_id)
-                    if stored is not None and self._entry_has_valid_features(stored):
-                        entry.update(stored)
-            if not self._entry_has_valid_features(entry):
-                entry.pop("features", None)
-                raise RuntimeError(f"Failed to load dataset {data_id}: {err}") from err
+            features = self._load_fresh_dataset(source)
+            self._commit_refresh_success(data_id, source, entry, features, now, interval)
+        except Exception as err:
+            self._commit_refresh_failure(data_id, entry, err)
         finally:
-            entry["last_updated_at"] = now
-            entry["expires_at"] = now + timedelta(seconds=interval)
+            # Whether the upstream load succeeded or we fell back to cache, the
+            # entry has now been (re)evaluated: schedule the next refresh window.
+            self._mark_refresh_attempt(entry, now, interval)
 
         return entry["features"]
+
+    def _load_fresh_dataset(self, source):
+        """Fetch upstream and build features. Raises on any fetch/transform error."""
+        adapter = self._resolve_adapter(source)
+        payload = adapter.fetch_payload(self._execute_fetch, source)
+        rows = adapter.extract_rows(payload, source)
+        return self._rows_to_features(rows, source.get("fields", {}))
+
+    def _commit_refresh_success(self, data_id, source, entry, features, now, interval):
+        """Store freshly loaded features, persist to cache, and record history."""
+        entry["features"] = features
+        entry["last_error"] = None
+        entry["last_success_at"] = now
+        if self.cache_db:
+            self.cache_db.save_dataset(
+                data_id, features, now, now, now + timedelta(seconds=interval)
+            )
+        self._record_history(data_id, source, features, now)
+
+    def _commit_refresh_failure(self, data_id, entry, err):
+        """Record the error and fall back to cache; re-raise if nothing usable."""
+        entry["last_error"] = str(err)
+        self._fallback_cached_dataset(data_id, entry)
+        if not self._entry_has_valid_features(entry):
+            entry.pop("features", None)
+            raise RuntimeError(f"Failed to load dataset {data_id}: {err}") from err
+
+    def _fallback_cached_dataset(self, data_id, entry):
+        """When the in-memory entry is absent/invalid, try SQLite as last resort."""
+        if self._entry_has_valid_features(entry) or not self.cache_db:
+            return
+        stored = self.cache_db.load_dataset(data_id)
+        if stored is not None and self._entry_has_valid_features(stored):
+            entry.update(stored)
+
+    @staticmethod
+    def _mark_refresh_attempt(entry, now, interval):
+        entry["last_updated_at"] = now
+        entry["expires_at"] = now + timedelta(seconds=interval)
 
     def query(self, data_id, payload):
         features = self.refresh(data_id)
@@ -115,6 +143,74 @@ class DatasetService:
             raise ValueError("metrics must be an array")
         filtered = query_points(features, payload)
         return aggregate_grouped(filtered, metrics, payload.get("groupBy"))
+
+    # ------------------------------------------------------------------
+    # history (diff-based capture log for Live datasets)
+
+    def _record_history(self, data_id, source, features, now):
+        if not self.history_db:
+            return
+        history = source.get("history") or {}
+        if not history.get("enabled"):
+            return
+        fields = source.get("fields", {})
+        ignore_fields = {fields.get("timestamp", "time"), "timestamp"}
+        try:
+            self.history_db.append(
+                data_id,
+                now,
+                features,
+                key_fields=history.get("key") or [],
+                ignore_fields=tuple(ignore_fields),
+                keyframe_interval=history.get("keyframe_interval", 50),
+                retention_days=history.get("retention_days"),
+            )
+        except Exception:  # pragma: no cover - history is best-effort
+            # Never let history capture break the live data flow.
+            pass
+
+    def _require_history(self, data_id):
+        source = self._get_source(data_id)
+        history = source.get("history") or {}
+        if not self.history_db or not history.get("enabled"):
+            raise KeyError(f"History not available for dataId: {data_id}")
+        return source
+
+    def history_range(self, data_id):
+        self._require_history(data_id)
+        return self.history_db.range(data_id)
+
+    def history_frames(self, data_id, frm=None, to=None):
+        self._require_history(data_id)
+        return self.history_db.frames(data_id, frm, to)
+
+    def history_state_at(self, data_id, t):
+        source = self._require_history(data_id)
+        key_fields = (source.get("history") or {}).get("key") or []
+        return self.history_db.state_at(data_id, t, key_fields)
+
+    def history_tracks(self, data_id, frm=None, to=None, progress_cb=None):
+        source = self._require_history(data_id)
+        history = source.get("history") or {}
+        key_fields = history.get("key") or []
+        osrm = history.get("osrm") or {}
+        # A gap longer than a few poll cycles means recording was interrupted.
+        refresh = int(source.get("refresh_seconds", 600) or 600)
+        max_gap_seconds = refresh * HISTORY_GAP_FACTOR
+        return build_entity_tracks(
+            self.history_db,
+            data_id,
+            key_fields,
+            frm,
+            to,
+            osrm_base_url=osrm.get("base_url") or "http://localhost:5001",
+            profile=osrm.get("profile") or "driving",
+            leg_router=self.osrm_leg_router,
+            leg_cache=self._osrm_leg_cache,
+            max_gap_seconds=max_gap_seconds,
+            max_concurrency=int(osrm.get("concurrency") or DEFAULT_OSRM_CONCURRENCY),
+            progress_cb=progress_cb,
+        )
 
     def _get_source(self, data_id):
         source = self.sources.get(data_id)

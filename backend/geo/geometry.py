@@ -1,3 +1,17 @@
+import math
+
+
+def haversine_m(a, b):
+    # 兩個 [lng, lat] 之間的大圓距離（公尺）
+    radius = 6371000.0
+    lat1 = math.radians(a[1])
+    lat2 = math.radians(b[1])
+    dlat = math.radians(b[1] - a[1])
+    dlng = math.radians(b[0] - a[0])
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlng / 2) ** 2
+    return 2 * radius * math.asin(min(1.0, math.sqrt(h)))
+
+
 def point_in_ring(lng, lat, ring):
     # Ray casting：從點向右射水平線，計算穿越 ring 邊的次數
     # 奇數次 = 在環內；`or 1e-12` 防止水平邊造成除以零

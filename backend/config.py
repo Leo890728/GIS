@@ -31,23 +31,22 @@ RANGE_STYLES = {
 }
 
 CACHE_DB_PATH = BACKEND_DIR / "data" / "cache.sqlite"
+HISTORY_DB_PATH = BACKEND_DIR / "data" / "history.sqlite"
+
+# Road-following playback smoothing uses the FULL-network OSRM (with alleys);
+# the no-alley instance (:5002) is for VRP planning and must not be used here.
+HISTORY_OSRM = {
+    "base_url": os.getenv("HISTORY_OSRM_URL", "http://localhost:5001"),
+    "profile": os.getenv("HISTORY_OSRM_PROFILE", "driving"),
+    # Number of OSRM route requests issued in parallel when building tracks.
+    "concurrency": int(os.getenv("HISTORY_OSRM_CONCURRENCY", "16")),
+}
 SPATIALITE_EXTENSION_PATH = os.getenv(
     "SPATIALITE_EXTENSION_PATH",
     str(ROOT / "tools" / "spatialite" / "mod_spatialite.dll"),
 )
 
 DATA_SOURCES = {
-	"taichung_garbage_recycling_dynamic": {
-		"adapter": "generic_http_json",
-		"url": "https://newdatacenter.taichung.gov.tw/api/v1/no-auth/resource.download?rid=c923ad20-2ec6-43b9-b3ab-54527e99f7bc",
-		"refresh_seconds": 600,
-		"fields": {
-			"id_parts": ["lineid", "car", "time"],
-			"lng": "X",
-			"lat": "Y",
-			"timestamp": "time",
-		},
-	},
 	"taichung_garbage_recycling_dynamic_V2": {
 		"adapter": "taichung_ws_skyeyes",
 		"bootstrap_url": "https://cleaner.epb.taichung.gov.tw/index.aspx",
@@ -62,12 +61,19 @@ DATA_SOURCES = {
 		},
 		"body": "",
 		"rows_path": ["d", "DATA"],
-		"refresh_seconds": 60,
+		"refresh_seconds": 15,
 		"fields": {
 			"id_parts": ["car_id", "car_licence", "dt"],
 			"lng": "x",
 			"lat": "y",
 			"timestamp": "dt",
+		},
+		"history": {
+			"enabled": True,
+			"key": ["car_id"],
+			"keyframe_interval": 50,
+			"retention_days": 7,
+			"osrm": HISTORY_OSRM,
 		},
 	},
     "stat_zone_population_points": {

@@ -11,30 +11,21 @@ pause
 exit /b 1
 
 :found
-set "OUT=taiwan-noalley.osrm"
+set "OUT=taiwan.osrm"
 set IMAGE=ghcr.io/project-osrm/osrm-backend
 
-rem taiwan-260527.osm.pbf -> taiwan-260527.osrm.datasource_names
-set "DS=%PBF:.osm.pbf=.osrm.datasource_names%"
-
 echo PBF=%PBF%
-echo DS=%DS%
+echo OUT=%OUT%
 
-echo [1/4] Extract with no-alley profile...
-docker run --rm -v "%cd%:/data" %IMAGE% osrm-extract -p /data/car_no_alley.lua -o /data/%OUT% /data/%PBF%
+echo [1/3] Extract with default car profile...
+docker run --rm -v "%cd%:/data" %IMAGE% osrm-extract -p /opt/car.lua -o /data/%OUT% /data/%PBF%
 if errorlevel 1 goto error
 
-echo [2/4] Copy datasource_names (osrm-extract -o quirk)...
-copy /Y "%~dp0%DS%" "%~dp0taiwan-noalley.osrm.datasource_names" >nul
-if errorlevel 1 (
-    echo WARNING: datasource_names copy failed, continuing...
-)
-
-echo [3/4] Partition...
+echo [2/3] Partition...
 docker run --rm -v "%cd%:/data" %IMAGE% osrm-partition /data/%OUT%
 if errorlevel 1 goto error
 
-echo [4/4] Customize...
+echo [3/3] Customize...
 docker run --rm -v "%cd%:/data" %IMAGE% osrm-customize /data/%OUT%
 if errorlevel 1 goto error
 

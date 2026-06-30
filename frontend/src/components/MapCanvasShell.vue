@@ -6,6 +6,8 @@ import { formatTooltipItemValue } from '../features/data/formatters'
 import { getBoundaryLayerIds, useMapLayers } from './map/useMapLayers'
 import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
 import { useMapRouteLayers } from './map/useMapRouteLayers'
+import SimulatorControlBar from '../features/simulator/SimulatorControlBar.vue'
+import AnalyticsDrawer from '../features/simulator/AnalyticsDrawer.vue'
 
 const basemapSourceId = 'basemap-source'
 const basemapLayerId = 'basemap-layer'
@@ -57,14 +59,46 @@ const props = defineProps({
   routePickMode: {
     type: String,
     default: ''
+  },
+  simulatorState: {
+    type: Object,
+    default: () => ({ active: false })
+  },
+  simulatorSpeeds: {
+    type: Array,
+    default: () => [1, 10, 30, 60]
   }
 })
 
-const emit = defineEmits(['toggle-layer', 'toggle-data-layer', 'toggle-route-layer', 'route-map-click'])
+const emit = defineEmits([
+  'toggle-layer',
+  'toggle-data-layer',
+  'toggle-route-layer',
+  'route-map-click',
+  'simulator-set-time',
+  'simulator-toggle-play',
+  'simulator-set-speed',
+  'simulator-step',
+  'simulator-toggle-smooth',
+  'simulator-select-segment',
+  'simulator-set-window',
+  'simulator-toggle-live',
+  'simulator-toggle-follow',
+  'simulator-select-feature',
+  'simulator-toggle-track',
+  'simulator-stop'
+])
 
 const mapEl = ref(null)
 const map = ref(null)
+// True once the initial style 'load' has fired. Style mutations (add/remove
+// layers & sources) are safe from this point on, even while sources are still
+// streaming — unlike map.isStyleLoaded(), which reports false whenever a source
+// is loading (e.g. the simulator's geojson is re-fed every frame during
+// playback), and would otherwise silently drop basemap/overlay updates.
+const mapLoaded = ref(false)
 const dataHoverPopup = ref(null)
+let lastHoverPoint = null
 const status = ref({ loading: false, error: '' })
 const layerStateRef = toRef(props, 'layerState')
 const selectedRangeGeoJsonRef = toRef(props, 'selectedRangeGeoJson')
@@ -138,7 +172,7 @@ const refreshLoading = () => {
 const applyBasemap = (basemap) => {
   const m = map.value
   if (!m || !basemap) return
-  if (!m.isStyleLoaded()) return
+  if (!mapLoaded.value) return
   const tiles = Array.isArray(basemap.tiles) ? basemap.tiles.filter(Boolean) : []
   if (!tiles.length) return
 
@@ -328,6 +362,41 @@ const handleDataHover = (event) => {
   m.getCanvas().style.cursor = 'pointer'
 }
 
+// In the simulator, clicking a data point selects that entity: the Analytics
+// drawer shows its info and offers a trajectory overlay. Clicking empty map
+// space clears the selection.
+const handleSimulatorClick = (event) => {
+  const m = map.value
+  if (!m || !props.simulatorState?.active) return
+  const pointLayerIds = getDataPointLayerIds(props.dataLayerState).filter((layerId) => m.getLayer(layerId))
+  if (!pointLayerIds.length) return
+  const features = m.queryRenderedFeatures(event.point, { layers: pointLayerIds })
+  if (!features.length) {
+    emit('simulator-select-feature', null)
+    return
+  }
+  const feature = features[0]
+  const properties = feature.properties || {}
+  const key = properties.__trackKey
+  if (key == null || key === '') {
+    emit('simulator-select-feature', null)
+    return
+  }
+  const coordinates = feature?.geometry?.coordinates || [event.lngLat.lng, event.lngLat.lat]
+  emit('simulator-select-feature', { key: String(key), properties, coordinates })
+}
+
+// While a tooltip is open, re-run the hover lookup as the underlying data
+// updates (e.g. during simulator playback) so its content/position track the
+// moving points instead of going stale.
+const refreshHoverFromData = () => {
+  if (!dataHoverPopup.value || !lastHoverPoint || !map.value) return
+  requestAnimationFrame(() => {
+    if (!dataHoverPopup.value || !lastHoverPoint || !map.value) return
+    handleDataHover(lastHoverPoint)
+  })
+}
+
 const createMap = () => {
   const initialTiles = Array.isArray(props.activeBasemap?.tiles) ? props.activeBasemap.tiles : []
   map.value = new maplibregl.Map({
@@ -360,6 +429,7 @@ const createMap = () => {
   map.value.addControl(new maplibregl.NavigationControl(), 'top-right')
 
   map.value.on('load', async () => {
+    mapLoaded.value = true
     applyBasemap(props.activeBasemap)
     addRangeLayers()
     await addDataLayers()
@@ -372,18 +442,29 @@ const createMap = () => {
     refreshLoading()
   })
 
-  map.value.on('mousemove', handleDataHover)
+  map.value.on('mousemove', (event) => {
+    lastHoverPoint = { point: event.point, lngLat: event.lngLat }
+    handleDataHover(event)
+  })
   map.value.on('click', (event) => {
-    if (!['start', 'end'].includes(props.routePickMode)) return
-    emit('route-map-click', {
-      mode: props.routePickMode,
-      coordinate: [Number(event.lngLat.lng.toFixed(6)), Number(event.lngLat.lat.toFixed(6))]
-    })
+    if (['start', 'end'].includes(props.routePickMode)) {
+      emit('route-map-click', {
+        mode: props.routePickMode,
+        coordinate: [Number(event.lngLat.lng.toFixed(6)), Number(event.lngLat.lat.toFixed(6))]
+      })
+      return
+    }
+    handleSimulatorClick(event)
   })
   map.value.on('mouseout', hideDataHoverPopup)
   map.value.on('dragstart', hideDataHoverPopup)
   map.value.on('zoomstart', hideDataHoverPopup)
-  map.value.on('sourcedata', refreshLoading)
+  // Only the raster basemap drives the "loading tiles" status; data-source
+  // updates (e.g. simulator playback writing GeoJSON every frame) must not
+  // toggle it, otherwise the indicator flickers.
+  map.value.on('sourcedata', (event) => {
+    if (event.sourceId === basemapSourceId) refreshLoading()
+  })
   map.value.on('idle', refreshLoading)
   map.value.on('error', (event) => {
     const message = event?.error?.message || 'Map rendering error'
@@ -437,6 +518,7 @@ watch(
   () => props.dataLayerGeoJson,
   () => {
     updateDataLayerGeoJson()
+    refreshHoverFromData()
   },
   { deep: true }
 )
@@ -478,6 +560,130 @@ watch(
   () => {
     if (!map.value) return
     map.value.getCanvas().style.cursor = ['start', 'end'].includes(props.routePickMode) ? 'crosshair' : ''
+  }
+)
+
+// Auto-follow: recenter on the simulator's current centroid (frame cadence).
+watch(
+  () => props.simulatorState?.followCenter,
+  (center) => {
+    if (!map.value || !props.simulatorState?.autoFollow || !Array.isArray(center)) return
+    map.value.easeTo({ center, duration: 600 })
+  }
+)
+
+// Single-entity trajectory overlay: a road-following line (dim = not yet
+// travelled, bright = travelled so far), origin/destination markers, and a ring
+// tracking the selected point's live position. All sit *beneath* the live data
+// point icons so the moving vehicles stay on top.
+const ensureSelectionLayers = () => {
+  const m = map.value
+  if (!m || !mapLoaded.value) return false
+
+  // Insert beneath the first data point layer so icons render above the track.
+  const pointLayerIds = getDataPointLayerIds(props.dataLayerState).filter((id) => m.getLayer(id))
+  const beforeId = pointLayerIds[0]
+  const addLayer = (def) => {
+    if (m.getLayer(def.id)) return
+    if (beforeId) m.addLayer(def, beforeId)
+    else m.addLayer(def)
+  }
+
+  if (!m.getSource('sim-track-source')) {
+    m.addSource('sim-track-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getSource('sim-track-traveled-source')) {
+    m.addSource('sim-track-traveled-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getSource('sim-track-endpoints-source')) {
+    m.addSource('sim-track-endpoints-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getSource('sim-selected-source')) {
+    m.addSource('sim-selected-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+
+  addLayer({
+    id: 'sim-track-line-casing',
+    type: 'line',
+    source: 'sim-track-source',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#0b1220', 'line-width': 6, 'line-opacity': 0.55 }
+  })
+  addLayer({
+    id: 'sim-track-line',
+    type: 'line',
+    source: 'sim-track-source',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#6f88aa', 'line-width': 3, 'line-opacity': 0.7 }
+  })
+  addLayer({
+    id: 'sim-track-traveled',
+    type: 'line',
+    source: 'sim-track-traveled-source',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#f4c95d', 'line-width': 3.5, 'line-opacity': 0.95 }
+  })
+  addLayer({
+    id: 'sim-track-endpoints',
+    type: 'circle',
+    source: 'sim-track-endpoints-source',
+    paint: {
+      'circle-radius': 5.5,
+      'circle-color': ['match', ['get', 'role'], 'start', '#34d399', 'end', '#eb5757', '#f4c95d'],
+      'circle-stroke-color': '#0b1220',
+      'circle-stroke-width': 1.5
+    }
+  })
+  addLayer({
+    id: 'sim-selected-ring',
+    type: 'circle',
+    source: 'sim-selected-source',
+    paint: {
+      'circle-radius': 9,
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-color': '#f4c95d',
+      'circle-stroke-width': 2.5,
+      'circle-stroke-opacity': 0.95
+    }
+  })
+  return true
+}
+
+const setSelectionSource = (sourceId, fc) => {
+  if (!ensureSelectionLayers()) return
+  const src = map.value.getSource(sourceId)
+  if (src) src.setData(fc || { type: 'FeatureCollection', features: [] })
+}
+
+watch(
+  () => props.simulatorState?.trackGeoJson,
+  (fc) => setSelectionSource('sim-track-source', fc)
+)
+
+watch(
+  () => props.simulatorState?.trackTraveledGeoJson,
+  (fc) => setSelectionSource('sim-track-traveled-source', fc)
+)
+
+watch(
+  () => props.simulatorState?.trackEndpointsGeoJson,
+  (fc) => setSelectionSource('sim-track-endpoints-source', fc)
+)
+
+// The ring follows the selected entity's live position (simulatorState.selectedPos
+// is re-synced every frame), so it tracks the moving point and disappears when
+// the selection is cleared — never lingering at a stale spot during playback.
+watch(
+  () => props.simulatorState?.selectedPos,
+  (coordinates) => {
+    if (!ensureSelectionLayers()) return
+    const src = map.value.getSource('sim-selected-source')
+    if (!src) return
+    src.setData(
+      Array.isArray(coordinates)
+        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates } }] }
+        : { type: 'FeatureCollection', features: [] }
+    )
   }
 )
 
@@ -561,6 +767,29 @@ onBeforeUnmount(() => {
       <p v-if="status.loading" class="status-row">Loading map tiles...</p>
       <p v-else class="status-row">{{ status.error }}</p>
     </div>
+
+    <SimulatorControlBar
+      v-if="props.simulatorState?.active"
+      :simulator-state="props.simulatorState"
+      :simulator-speeds="props.simulatorSpeeds"
+      @set-time="emit('simulator-set-time', $event)"
+      @toggle-play="emit('simulator-toggle-play')"
+      @set-speed="emit('simulator-set-speed', $event)"
+      @step="emit('simulator-step', $event)"
+      @toggle-smooth="emit('simulator-toggle-smooth')"
+      @select-segment="emit('simulator-select-segment', $event)"
+      @set-window="emit('simulator-set-window', $event)"
+      @toggle-live="emit('simulator-toggle-live')"
+      @stop="emit('simulator-stop')"
+    />
+
+    <AnalyticsDrawer
+      v-if="props.simulatorState?.active"
+      :simulator-state="props.simulatorState"
+      @toggle-track="emit('simulator-toggle-track')"
+      @toggle-follow="emit('simulator-toggle-follow')"
+      @clear-selection="emit('simulator-select-feature', null)"
+    />
   </section>
 </template>
 
