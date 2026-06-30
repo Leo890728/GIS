@@ -83,8 +83,14 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
       state.error = 'Failed to load smooth tracks.'
     } finally {
       if (smoothAbort === controller) smoothAbort = null
-      if (!controller.signal.aborted) {
+      // Once this is the abandoned-latest load (no newer load replaced it),
+      // clear the smooth-specific flag even on abort so the UI never sticks.
+      // `loading` is shared with frame loads, so only clear it on success to
+      // avoid clobbering a frame fetch that an abort path may have started.
+      if (smoothAbort === null) {
         state.smoothing = false
+      }
+      if (!controller.signal.aborted) {
         state.loading = false
       }
     }
