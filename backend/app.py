@@ -28,7 +28,11 @@ from backend.services.regions_service import RegionsService
 
 
 def _history_poll_enabled():
-    if os.getenv("HISTORY_BACKGROUND_POLL", "1").strip().lower() in ("0", "false", "no", "off"):
+    # Default OFF: capture is the dedicated `backend.worker`'s job. Otherwise a
+    # multi-worker WSGI server (gunicorn) would start one scheduler per worker
+    # and duplicate captures. The dev entrypoint and the capture service opt in
+    # explicitly via HISTORY_BACKGROUND_POLL=1.
+    if os.getenv("HISTORY_BACKGROUND_POLL", "0").strip().lower() not in ("1", "true", "yes", "on"):
         return False
     # Under the Werkzeug debug reloader two processes import the app; only the
     # reloader child sets WERKZEUG_RUN_MAIN. Skip the parent to avoid double jobs.
@@ -73,5 +77,8 @@ def create_app(config_overrides=None):
 
 if __name__ == "__main__":
     os.environ["RUN_DEV_SERVER"] = "1"
+    # Single-process local dev captures in-process by default for convenience;
+    # an explicit env still wins.
+    os.environ.setdefault("HISTORY_BACKGROUND_POLL", "1")
     app = create_app()
     app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
