@@ -7,7 +7,9 @@ load_dotenv()
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = Path(__file__).resolve().parent
-PMTILES_BIN = ROOT / "tools" / "pmtiles" / "pmtiles.exe"
+# The Docker image installs go-pmtiles at /usr/local/bin/pmtiles and sets
+# PMTILES_BIN; override the env for other layouts.
+PMTILES_BIN = Path(os.getenv("PMTILES_BIN", "/usr/local/bin/pmtiles"))
 PMTILES_DIR = BACKEND_DIR / "pmtiles"
 BOUNDS_DB_PATH = BACKEND_DIR / "data" / "bounds.sqlite"
 DATA_DB_PATH   = BACKEND_DIR / "data" / "data.sqlite"
@@ -33,8 +35,9 @@ RANGE_STYLES = {
 CACHE_DB_PATH = BACKEND_DIR / "data" / "cache.sqlite"
 HISTORY_DB_PATH = BACKEND_DIR / "data" / "history.sqlite"
 
-# Road-following playback smoothing uses the FULL-network OSRM (with alleys);
-# the no-alley instance (:5002) is for VRP planning and must not be used here.
+# Both road-following playback smoothing and VRP planning use the single
+# full-network OSRM (:5001 by default; override per use via HISTORY_OSRM_URL /
+# VRP_OSRM_URL).
 HISTORY_OSRM = {
     "base_url": os.getenv("HISTORY_OSRM_URL", "http://localhost:5001"),
     "profile": os.getenv("HISTORY_OSRM_PROFILE", "driving"),
@@ -43,7 +46,7 @@ HISTORY_OSRM = {
 }
 SPATIALITE_EXTENSION_PATH = os.getenv(
     "SPATIALITE_EXTENSION_PATH",
-    str(ROOT / "tools" / "spatialite" / "mod_spatialite.dll"),
+    "/usr/lib/x86_64-linux-gnu/mod_spatialite.so",
 )
 
 DATA_SOURCES = {

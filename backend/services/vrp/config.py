@@ -1,5 +1,6 @@
 """Solve configuration: defaults, ``_SolveConfig`` and payload parsing."""
 
+import os
 from dataclasses import dataclass
 
 from backend.services.vrp.payload import (
@@ -55,7 +56,9 @@ def _parse_config(payload):
     if metric not in {"duration", "distance"}:
         raise ValueError("cost.metric must be duration or distance")
     profile = cost_payload.get("profile") or "driving"
-    osrm_base_url = cost_payload.get("osrmBaseUrl") or "http://localhost:5002"
+    # OSRM topology is a server concern: an explicit VRP_OSRM_URL wins over the
+    # client-supplied value (e.g. so a container reaches the osrm service).
+    osrm_base_url = os.getenv("VRP_OSRM_URL") or cost_payload.get("osrmBaseUrl") or "http://localhost:5001"
     route_max_waypoints_per_call = _as_int(
         cost_payload.get("routeMaxWaypointsPerCall"),
         "cost.routeMaxWaypointsPerCall",

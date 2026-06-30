@@ -9,7 +9,10 @@ import { useRanges } from './features/ranges/useRanges'
 import { useRoutePlanner } from './features/route/useRoutePlanner'
 import { useSimulator } from './features/simulator/useSimulator'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+// `??` (not `||`) so an explicit empty value means "same origin" (the nginx
+// container reverse-proxies the API), while an unset var still defaults to the
+// local dev backend.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000'
 
 const isSidebarCollapsed = ref(false)
 const { basemapState, activeBasemap, setBasemap } = useBasemap()
