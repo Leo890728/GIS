@@ -117,14 +117,14 @@ export const taichungGarbageVehicle = (ctx, params) => {
 
   return {
     style: {
-      pointColor,
+      color: pointColor,
       pointSize,
-      heatWeight
+      heatWeight,
+      ...(resolvedIconId ? { iconId: resolvedIconId } : {})
     },
     derivedFields: {
       OverSpeedText: isOverSpeed ? 'Yes' : 'No',
-      SpeedBand: speedBand,
-      ...(resolvedIconId ? { __style_iconId: resolvedIconId } : {})
+      SpeedBand: speedBand
     }
   }
 }

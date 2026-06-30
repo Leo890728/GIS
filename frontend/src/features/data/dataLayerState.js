@@ -61,14 +61,25 @@ import { buildTruckIcon } from './icons'
  * @property {string}        [titleTemplate='']   title with `{field}` placeholders, e.g. '車牌 {car_licence}'
  * @property {TooltipItem[]} [items=[]]
  *
- * @typedef {Object} StyleConfig
- * @property {'points'|'heatmap'} [mode='points']
- * @property {string} [color]
- * @property {string} [iconId]
- * @property {number} [iconSize]
- * @property {number} [pointSize]
+ * @typedef {Object} PointStyle
+ * @property {string}  [color]               circle/point fallback colour
+ * @property {string}  [iconId]              symbol icon id (falls back to circle if absent)
+ * @property {number}  [iconSize]
+ * @property {number}  [pointSize]
+ * @property {boolean} [forceCircle]         render as a circle even if an icon exists
+ * @property {boolean} [scalePointWithZoom]
+ *
+ * @typedef {Object} HeatmapStyle
+ * @property {string} [weightProperty]       property driving the heatmap weight
  * @property {number} [heatmapIntensity]
- * @property {string} [weightProperty]
+ *
+ * @typedef {Object} ModeStyles
+ * @property {PointStyle}   [points]         present => 'points' is a supported mode
+ * @property {HeatmapStyle} [heatmap]        present => 'heatmap' is a supported mode
+ *
+ * The styleHandler's per-feature dynamic output uses the same keys as PointStyle
+ * (color/pointSize/iconId) plus `heatWeight`, and overrides these static
+ * defaults via the map's `__style_*` properties.
  *
  * @typedef {Object} DataSourceConfig
  * @property {string}  label                  UI display name
@@ -80,11 +91,11 @@ import { buildTruckIcon } from './icons'
  * @property {QueryConfig}        [query]
  * @property {AggregateConfig}    [aggregate]
  * @property {DynamicConfig}      [dynamic]   omit for a static (non-polled) layer
- * @property {('points'|'heatmap')[]} [supportedModes=['points','heatmap']]
+ * @property {ModeStyles}         [style]     per-mode style; its keys define supportedModes
+ * @property {'points'|'heatmap'} [defaultMode]  active mode (defaults to first key of `style`)
  * @property {IconConfig[]}       [icons=[]]
  * @property {StyleHandlerConfig} [styleHandler]
  * @property {TooltipConfig}      [tooltip]
- * @property {StyleConfig}        [style]
  */
 
 /** @returns {Object<string, DataSourceConfig>} */
@@ -102,7 +113,6 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       summary: { sumField: '', sumLabel: 'Sum', avgField: 'status', avgLabel: 'Avg status' }
     },
     dynamic: { enabled: true, pollIntervalMs: 15000 },
-    supportedModes: ['points'],
     icons: [
       { id: 'tcg-v2-fallback', builder: buildTruckIcon, options: { color: '#5ec8f2' } },
       { id: 'tcg-v2-garbage-o01', src: '/icons/tcg-v2/noGarbage_truck_o01.png' },
@@ -168,11 +178,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       ]
     },
     style: {
-      color: '#5ec8f2',
-      iconId: 'tcg-v2-fallback',
-      pointSize: 6,
-      heatmapIntensity: 1,
-      weightProperty: 'status'
+      points: { color: '#5ec8f2', iconId: 'tcg-v2-fallback', pointSize: 6 }
     }
   },
 
@@ -192,7 +198,6 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         sumDigits: 0
       }
     },
-    supportedModes: ['points'],
     icons: [{ id: 'incinerator', src: '/icons/incinerator.png' }],
     tooltip: {
       enabled: true,
@@ -215,7 +220,9 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         { label: '系統代碼', field: 'wepno' }
       ]
     },
-    style: { color: '#f97316', iconId: 'incinerator', iconSize: 1 }
+    style: {
+      points: { color: '#f97316', iconId: 'incinerator', iconSize: 1 }
+    }
   },
 
   statZonePopulation: {
@@ -247,7 +254,11 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         { label: 'Population', field: 'P_CNT', format: 'number', digits: 0 }
       ]
     },
-    style: { mode: 'heatmap', color: '#72e9b7', pointSize: 6, heatmapIntensity: 1.4, weightProperty: 'P_CNT' }
+    defaultMode: 'heatmap',
+    style: {
+      points: { color: '#72e9b7', pointSize: 6 },
+      heatmap: { weightProperty: 'P_CNT', heatmapIntensity: 1.4 }
+    }
   }
 })
 
@@ -256,18 +267,20 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
  * filling every default. This is the single source of defaults for the registry.
  * @param {DataSourceConfig} entry
  */
+const MODES = ['points', 'heatmap']
+
 const toLayerEntry = (entry) => {
-  const supportedModes =
-    Array.isArray(entry.supportedModes) && entry.supportedModes.length
-      ? entry.supportedModes.filter((mode) => ['points', 'heatmap'].includes(mode))
-      : ['points', 'heatmap']
-  const style = { mode: 'points', ...(entry.style || {}) }
-  if (!supportedModes.includes(style.mode)) {
-    style.mode = supportedModes[0] || 'points'
-  }
+  // supportedModes are the modes that have a style block; the active mode is
+  // `defaultMode` (or the first supported). The per-mode style is flattened into
+  // the single object the map layer consumes (point + heatmap keys don't collide).
+  const modeStyles = entry.style || {}
+  const supportedModes = MODES.filter((mode) => modeStyles[mode])
+  const safeModes = supportedModes.length ? supportedModes : ['points']
+  const mode = safeModes.includes(entry.defaultMode) ? entry.defaultMode : safeModes[0]
+  const style = { mode, ...(modeStyles.points || {}), ...(modeStyles.heatmap || {}) }
   return {
     ...entry,
-    supportedModes,
+    supportedModes: safeModes,
     query: {
       dataId: entry.dataId,
       ...(entry.query || {})
