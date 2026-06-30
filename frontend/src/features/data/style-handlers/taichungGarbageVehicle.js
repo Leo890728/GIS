@@ -1,3 +1,38 @@
+// Style handler for the Taichung garbage/recycling fleet. Everything dataset-
+// specific (field names, speed colour bands, directional icon mapping) lives
+// here as DEFAULTS — the config only needs `{ handler: taichungGarbageVehicle }`.
+// `params` may shallow-override any DEFAULTS key when needed.
+//
+// Icon naming contract: directional icons are `${prefix}-${suffix}` where prefix
+// comes from cartype (N→tcg-v2-garbage, R→tcg-v2-recycle) and suffix from the
+// `direct` arrow (o01..o08); the config's `icons` must register those ids.
+const DEFAULTS = {
+  speedField: 'status',
+  overSpeedField: '',
+  normalColor: '#5ec8f2',
+  mediumColor: '#79d48a',
+  fastColor: '#f2994a',
+  overSpeedColor: '#eb5757',
+  heatWeightBase: 1,
+  fallbackIconId: 'tcg-v2-fallback',
+  directionalIcons: {
+    directionField: 'direct',
+    vehicleField: 'cartype',
+    vehiclePrefixMap: { N: 'tcg-v2-garbage', R: 'tcg-v2-recycle' },
+    defaultVehiclePrefix: 'tcg-v2-garbage',
+    directionMap: {
+      '↑': 'o01',
+      '↗': 'o02',
+      '→': 'o03',
+      '↘': 'o04',
+      '↓': 'o05',
+      '↙': 'o06',
+      '←': 'o07',
+      '↖': 'o08'
+    }
+  }
+}
+
 const isFiniteNumber = (value) => Number.isFinite(value)
 
 const toNumber = (value) => {
@@ -12,115 +47,54 @@ const isTruthyOverSpeed = (value) => {
   return normalized === 'Y' || normalized === 'YES' || normalized === 'TRUE' || normalized === '1'
 }
 
-const resolveIconFromFieldRules = (properties, iconByField) => {
-  if (!iconByField || typeof iconByField !== 'object') return null
-  for (const [fieldName, mapping] of Object.entries(iconByField)) {
-    if (!mapping || typeof mapping !== 'object') continue
-    const rawValue = properties?.[fieldName]
-    const normalized = rawValue == null ? '' : String(rawValue).trim()
-    if (Object.prototype.hasOwnProperty.call(mapping, normalized)) {
-      return mapping[normalized]
-    }
-  }
-  return null
-}
-
 const resolveDirectionalIcon = (properties, directionalIcons) => {
-  if (!directionalIcons || typeof directionalIcons !== 'object') return null
-  const directionField = directionalIcons.directionField || 'direct'
-  const vehicleField = directionalIcons.vehicleField || 'cartype'
-  const directionMap = directionalIcons.directionMap || {}
-  const vehiclePrefixMap = directionalIcons.vehiclePrefixMap || {}
-
-  const directionValue = properties?.[directionField]
-  const vehicleValue = properties?.[vehicleField]
+  const directionValue = properties?.[directionalIcons.directionField]
+  const vehicleValue = properties?.[directionalIcons.vehicleField]
   const directionKey = directionValue == null ? '' : String(directionValue).trim()
   const vehicleKey = vehicleValue == null ? '' : String(vehicleValue).trim()
-  const suffix = directionMap[directionKey]
-  const prefix = vehiclePrefixMap[vehicleKey] || directionalIcons.defaultVehiclePrefix
+  const suffix = directionalIcons.directionMap[directionKey]
+  const prefix = directionalIcons.vehiclePrefixMap[vehicleKey] || directionalIcons.defaultVehiclePrefix
   if (!suffix || !prefix) return null
   return `${prefix}-${suffix}`
 }
 
 export const taichungGarbageVehicle = (ctx, params) => {
-  /*
-   * params example:
-   * {
-   *   speedField: 'status',
-   *   overSpeedField: 'OverSpeed',
-   *   iconIds: {
-   *     normal: 'tcg-v2-normal',
-   *     medium: 'tcg-v2-medium',
-   *     fast: 'tcg-v2-fast',
-   *     overSpeed: 'tcg-v2-overspeed'
-   *   },
-   *   iconByField: {
-   *     cartype: { R: 'tcg-v2-recycle' }
-   *   },
-   *   directionalIcons: {
-   *     directionField: 'direct',
-   *     vehicleField: 'cartype',
-   *     vehiclePrefixMap: {
-   *       N: 'tcg-v2-garbage',
-   *       R: 'tcg-v2-recycle'
-   *     },
-   *     directionMap: {
-   *       '\\u2191': 'o01', '\\u2197': 'o02', '\\u2192': 'o03', '\\u2198': 'o04',
-   *       '\\u2193': 'o05', '\\u2199': 'o06', '\\u2190': 'o07', '\\u2196': 'o08'
-   *     }
-   *   }
-   * }
-   * Priority: directionalIcons > iconByField > iconIds(speed band)
-   */
-  const speedField = params?.speedField || 'SpeedValue'
-  const overSpeedField = params?.overSpeedField || 'OverSpeed'
-  const speed = toNumber(ctx.properties?.[speedField])
-  const isOverSpeed = isTruthyOverSpeed(ctx.properties?.[overSpeedField])
+  const p = { ...DEFAULTS, ...(params || {}) }
+  const speed = toNumber(ctx.properties?.[p.speedField])
+  const isOverSpeed = isTruthyOverSpeed(ctx.properties?.[p.overSpeedField])
 
-  const normalColor = params?.normalColor || '#4ade80'
-  const mediumColor = params?.mediumColor || '#facc15'
-  const fastColor = params?.fastColor || '#fb923c'
-  const overSpeedColor = params?.overSpeedColor || '#ef4444'
-
-  let pointColor = normalColor
+  let color = p.normalColor
   let pointSize = 6
   let speedBand = 'low'
-  let iconBand = 'normal'
   if (isFiniteNumber(speed)) {
     if (speed >= 50) {
-      pointColor = fastColor
+      color = p.fastColor
       pointSize = 8
       speedBand = 'high'
-      iconBand = 'fast'
     } else if (speed >= 30) {
-      pointColor = mediumColor
+      color = p.mediumColor
       pointSize = 7
       speedBand = 'medium'
-      iconBand = 'medium'
     }
   }
   if (isOverSpeed) {
-    pointColor = overSpeedColor
+    color = p.overSpeedColor
     pointSize = 9
     speedBand = 'overspeed'
-    iconBand = 'overSpeed'
   }
 
-  const heatWeightBase = toNumber(params?.heatWeightBase) ?? 1
+  const heatWeightBase = toNumber(p.heatWeightBase) ?? 1
   const heatWeightBySpeed = isFiniteNumber(speed) ? Math.max(0.2, speed / 40) : 1
   const heatWeight = Number((heatWeightBase * heatWeightBySpeed * (isOverSpeed ? 1.3 : 1)).toFixed(3))
-  const iconIds = params?.iconIds || {}
-  const iconIdFromBand = iconIds[iconBand] || iconIds.normal || null
-  const iconIdFromField = resolveIconFromFieldRules(ctx.properties, params?.iconByField)
-  const directionalIconId = resolveDirectionalIcon(ctx.properties, params?.directionalIcons)
-  const resolvedIconId = directionalIconId || iconIdFromField || iconIdFromBand
+
+  const iconId = resolveDirectionalIcon(ctx.properties, p.directionalIcons) || p.fallbackIconId
 
   return {
     style: {
-      color: pointColor,
+      color,
       pointSize,
       heatWeight,
-      ...(resolvedIconId ? { iconId: resolvedIconId } : {})
+      ...(iconId ? { iconId } : {})
     },
     derivedFields: {
       OverSpeedText: isOverSpeed ? 'Yes' : 'No',

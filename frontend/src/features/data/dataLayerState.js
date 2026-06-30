@@ -132,40 +132,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       { id: 'tcg-v2-recycle-o07', src: '/icons/tcg-v2/recycle_o07.png' },
       { id: 'tcg-v2-recycle-o08', src: '/icons/tcg-v2/recycle_o08.png' }
     ],
-    styleHandler: {
-      handler: taichungGarbageVehicle,
-      params: {
-        speedField: 'status',
-        overSpeedField: '',
-        normalColor: '#5ec8f2',
-        mediumColor: '#79d48a',
-        fastColor: '#f2994a',
-        overSpeedColor: '#eb5757',
-        iconIds: {
-          normal: 'tcg-v2-fallback',
-          medium: 'tcg-v2-fallback',
-          fast: 'tcg-v2-fallback',
-          overSpeed: 'tcg-v2-fallback'
-        },
-        directionalIcons: {
-          directionField: 'direct',
-          vehicleField: 'cartype',
-          vehiclePrefixMap: { N: 'tcg-v2-garbage', R: 'tcg-v2-recycle' },
-          defaultVehiclePrefix: 'tcg-v2-garbage',
-          directionMap: {
-            '↑': 'o01',
-            '↗': 'o02',
-            '→': 'o03',
-            '↘': 'o04',
-            '↓': 'o05',
-            '↙': 'o06',
-            '←': 'o07',
-            '↖': 'o08'
-          }
-        },
-        heatWeightBase: 1
-      }
-    },
+    styleHandler: { handler: taichungGarbageVehicle },
     tooltip: {
       enabled: true,
       titleTemplate: '{car_licence}',

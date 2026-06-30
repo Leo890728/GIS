@@ -38,6 +38,13 @@ describe('taichungGarbageVehicle', () => {
     expect(Number.isFinite(r.style.pointSize)).toBe(true)
     expect(Number.isFinite(r.style.heatWeight)).toBe(true)
   })
+
+  it('works with no params using built-in dataset defaults', () => {
+    const r = taichungGarbageVehicle({ properties: { status: 60, direct: '↓', cartype: 'R' } })
+    expect(r.style.color).toBe('#f2994a') // fastColor default
+    expect(r.style.iconId).toBe('tcg-v2-recycle-o05') // R + ↓
+    expect(taichungGarbageVehicle({ properties: { status: 10 } }).style.iconId).toBe('tcg-v2-fallback')
+  })
 })
 
 describe('statZonePopulationStyle', () => {
