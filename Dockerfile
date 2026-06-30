@@ -2,11 +2,17 @@
 # differ by the command run). See docker-compose.yml.
 FROM python:3.12-slim
 
-# mod_spatialite backs region/range GeoJSON (used by the web service; harmless
-# and unused for the capture worker).
+# mod_spatialite backs region/range GeoJSON; the go-pmtiles CLI extracts vector
+# tiles from .pmtiles archives (the Windows pmtiles.exe can't run here).
+ARG PMTILES_VERSION=1.30.3
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libsqlite3-mod-spatialite \
+ && apt-get install -y --no-install-recommends libsqlite3-mod-spatialite curl ca-certificates \
+ && curl -fsSL "https://github.com/protomaps/go-pmtiles/releases/download/v${PMTILES_VERSION}/go-pmtiles_${PMTILES_VERSION}_Linux_x86_64.tar.gz" \
+    | tar -xz -C /usr/local/bin pmtiles \
+ && chmod +x /usr/local/bin/pmtiles \
+ && apt-get purge -y --auto-remove curl \
  && rm -rf /var/lib/apt/lists/*
+ENV PMTILES_BIN=/usr/local/bin/pmtiles
 
 WORKDIR /app
 

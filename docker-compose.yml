@@ -1,18 +1,42 @@
-# Splits the scheduled history capture into its own process so it is decoupled
-# from the web server and never duplicated by multi-worker gunicorn.
-#
+# Full stack:
+#   frontend – nginx serving the built SPA, reverse-proxying the API to web
 #   web      – serves the API; capture disabled (HISTORY_BACKGROUND_POLL=0)
 #   capture  – the only process that polls upstream and writes captures
 #
-# Both mount the same ./backend/data volume (cache.sqlite + history.sqlite are
-# written by both processes; WAL + busy_timeout make that safe). bounds.sqlite /
-# data.sqlite reference data must already exist under ./backend/data.
+# web + capture mount the same ./backend/data volume (cache.sqlite +
+# history.sqlite are written by both; WAL + busy_timeout make that safe).
+# bounds.sqlite / data.sqlite reference data must already exist under
+# ./backend/data.
 #
-# OSRM (smooth tracks :5001, VRP :5002) is only needed by the web service. By
-# default the web container reaches an OSRM running on the host; override
-# HISTORY_OSRM_URL or run OSRM as its own service.
+# A single full-network OSRM (osrm) serves both smooth-track building and VRP
+# planning; the web service reaches it over the compose network.
 
 services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend
+    # Matches the existing files in tools/osrm/. Override with OSRM_DATA if you
+    # rebuild to a different prefix (e.g. taiwan.osrm).
+    command: osrm-routed --algorithm mld --max-table-size 1500 /data/${OSRM_DATA:-taiwan-260617.osrm}
+    ports:
+      - "5001:5000"            # host:container (osrm-routed listens on 5000)
+    volumes:
+      - ./tools/osrm:/data:ro
+    restart: unless-stopped
+
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Empty => SPA calls the API same-origin; nginx proxies it to web.
+        VITE_API_BASE_URL: ""
+    ports:
+      - "8080:80"
+    depends_on:
+      - web
+    restart: unless-stopped
+
+
   web:
     build: .
     command: gunicorn --bind 0.0.0.0:5000 --workers 2 "backend.app:create_app()"
@@ -21,12 +45,14 @@ services:
     environment:
       # Capture runs in the `capture` service, not here.
       HISTORY_BACKGROUND_POLL: "0"
-      HISTORY_OSRM_URL: "${HISTORY_OSRM_URL:-http://host.docker.internal:5001}"
+      # Smooth tracks and VRP both use the single osrm service.
+      HISTORY_OSRM_URL: "http://osrm:5000"
+      VRP_OSRM_URL: "http://osrm:5000"
       SPATIALITE_EXTENSION_PATH: "/usr/lib/x86_64-linux-gnu/mod_spatialite.so"
     volumes:
       - ./backend/data:/app/backend/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      - osrm
     restart: unless-stopped
 
   capture:

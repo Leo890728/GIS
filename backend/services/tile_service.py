@@ -8,7 +8,7 @@ def read_vector_tile(pmtiles_bin, datasets, dataset, z, x, y):
         return None
 
     if not pmtiles_bin.exists():
-        raise FileNotFoundError("pmtiles.exe not found")
+        raise FileNotFoundError(f"pmtiles binary not found: {pmtiles_bin}")
 
     result = subprocess.run(
         [str(pmtiles_bin), "tile", str(pmtiles_path), str(z), str(x), str(y)],
