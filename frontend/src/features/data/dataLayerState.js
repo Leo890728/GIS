@@ -51,7 +51,8 @@ import { buildTruckIcon } from './icons'
  *
  * @typedef {Object} TooltipItem
  * @property {string} label
- * @property {string} field
+ * @property {string} [field]                 single property value, formatted by `format`
+ * @property {string} [template]              '{field}' template (raw, multi-field); overrides field/format
  * @property {string} [format]                text|number|datetime|enumMap|booleanMap
  * @property {number} [digits]
  *

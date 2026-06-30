@@ -98,6 +98,13 @@ export const resolveTooltipTitle = (tooltip, properties) =>
 
 export const formatTooltipItemValue = (item, properties) => {
   if (!item || typeof item !== 'object') return DEFAULT_FALLBACK
+
+  // `template` interpolates multiple fields as raw text; `format` is ignored.
+  if (typeof item.template === 'string') {
+    const text = interpolateTemplate(item.template, properties)
+    return text === '' ? DEFAULT_FALLBACK : text
+  }
+
   const rawValue = properties?.[item.field]
   if (isEmpty(rawValue)) return DEFAULT_FALLBACK
 
