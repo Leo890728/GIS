@@ -2,88 +2,91 @@ import { statZonePopulationStyle, taichungGarbageVehicle } from './style-handler
 import { buildTruckIcon } from './icons'
 
 /**
- * Data source registry guide
+ * Data source registry — the standard shape for a Data Panel dataset.
  *
- * Use createDataSourceRegistry() to register each dataset shown in Data Panel.
- * Each top-level key is a local UI key (e.g. taichungGarbageDynamicV2), and
- * dataId must match backend /datasets entries.
+ * Each entry below is a *partial* `DataSourceConfig`: only fields that differ
+ * from the defaults need to be set. `toLayerEntry()` (bottom of this file) is the
+ * single source of defaults and normalization. Keep entries in the canonical key
+ * order documented by the typedef: identity → data → render.
  *
- * Minimal example:
- * {
- *   sampleSource: {
- *     label: 'Sample Source',
- *     detail: 'sample_data_id',
- *     dataId: 'sample_data_id',
- *     sourceId: 'data-sample-source',
- *     layerId: 'data-sample-points',
- *     active: true,
- *     query: { filters: {}, limit: 1000 },
- *     aggregate: {
- *       metrics: ['count'],
- *       groupBy: 'groupField',
- *       summary: {
- *         sumField: 'value',
- *         sumLabel: 'Value Sum',
- *         avgField: 'value',
- *         avgLabel: 'Value Avg'
- *       }
- *     },
- *     dynamic: { enabled: false, pollIntervalMs: 60000 },
- *     supportedModes: ['points', 'heatmap'],
- *     icons: [
- *       { id: 'sample-normal', builder: buildTruckIcon, options: { color: '#4ade80' } },
- *       { id: 'sample-from-url', src: 'https://example.com/icon.png' }
- *     ],
- *     styleHandler: {
- *       handler: customHandlerFunction,
- *       params: { fieldName: 'valueField' }
- *     },
- *     tooltip: {
- *       enabled: true,
- *       titleField: 'name',
- *       items: [
- *         { label: 'Name', field: 'name' },
- *         { label: 'Value', field: 'value', format: 'number', digits: 1 }
- *       ]
- *     },
- *     style: {
- *       mode: 'points',
- *       color: '#4ade80',
- *       iconId: 'sample-normal',
- *       pointSize: 6,
- *       heatmapIntensity: 1,
- *       weightProperty: 'value'
- *     }
- *   }
- * }
+ * Conventions
+ * - `sourceId` / `layerId` must be globally unique across all data sources.
+ * - `dataId` must match a backend `/datasets` entry.
+ * - Omit a field to take its default (e.g. drop `dynamic` for a static layer,
+ *   drop `supportedModes` to allow both points + heatmap).
+ * - `styleHandler.params` is handler-specific (see the referenced handler).
+ * - tooltip item `format`: text | number | datetime | enumMap | booleanMap.
  *
- * Notes:
- * - sourceId/layerId must be unique across all data sources.
- * - supportedModes controls what the UI and map are allowed to render.
- * - icons is optional and defines point symbols this data source can use.
- * - styleHandler is optional and runs per feature before map rendering.
- * - styleHandler.handler can be a direct function reference.
- * - Conditional icon example:
- *   styleHandler: {
- *     handler: taichungGarbageVehicle,
- *     params: {
- *       iconIds: {
- *         normal: 'sample-normal',
- *         medium: 'sample-medium',
- *         fast: 'sample-fast',
- *         overSpeed: 'sample-overspeed'
- *       },
- *       iconByField: {
- *         cartype: {
- *           R: 'sample-recycle',
- *           N: 'sample-normal'
- *         }
- *       }
- *     }
- *   }
- *   // Priority: iconByField > iconIds(speed band) > style.iconId
- * - tooltip items support formatters: text, number, datetime, enumMap, booleanMap.
+ * @typedef {Object} QueryConfig
+ * @property {string}  [endpoint='/data/query']
+ * @property {boolean} [useRangeRequest]   send the selected admin range as codes
+ * @property {Object}  [filters]
+ * @property {number}  [limit]
+ *
+ * @typedef {Object} AggregateSummary
+ * @property {string} [sumField] @property {string} [sumLabel] @property {number} [sumDigits]
+ * @property {string} [avgField] @property {string} [avgLabel]
+ *
+ * @typedef {Object} AggregateConfig
+ * @property {string}   [endpoint='/data/aggregate']
+ * @property {boolean}  [useRangeRequest]
+ * @property {string[]} [metrics=['count']]    e.g. 'count', 'sum:FIELD', 'avg:FIELD'
+ * @property {string}   [groupBy]
+ * @property {AggregateSummary} [summary]
+ * @property {number}   [priority]             higher wins when picking the active aggregate
+ *
+ * @typedef {Object} DynamicConfig
+ * @property {boolean} enabled
+ * @property {number}  [pollIntervalMs=60000]
+ *
+ * @typedef {Object} IconConfig
+ * @property {string}   id
+ * @property {string}   [src]                 image URL (mutually exclusive with builder)
+ * @property {Function} [builder]             runtime icon builder (e.g. buildTruckIcon)
+ * @property {Object}   [options]             builder options
+ *
+ * @typedef {Object} StyleHandlerConfig
+ * @property {Function} handler               per-feature style function
+ * @property {Object<string,*>} [params]      handler-specific parameters
+ *
+ * @typedef {Object} TooltipItem
+ * @property {string} label
+ * @property {string} field
+ * @property {string} [format]                text|number|datetime|enumMap|booleanMap
+ * @property {number} [digits]
+ *
+ * @typedef {Object} TooltipConfig
+ * @property {boolean}       [enabled=false]
+ * @property {string}        [titleField='']
+ * @property {TooltipItem[]} [items=[]]
+ *
+ * @typedef {Object} StyleConfig
+ * @property {'points'|'heatmap'} [mode='points']
+ * @property {string} [color]
+ * @property {string} [iconId]
+ * @property {number} [iconSize]
+ * @property {number} [pointSize]
+ * @property {number} [heatmapIntensity]
+ * @property {string} [weightProperty]
+ *
+ * @typedef {Object} DataSourceConfig
+ * @property {string}  label                  UI display name
+ * @property {string}  [detail]               short subtitle / source hint
+ * @property {string}  dataId                 backend dataset id
+ * @property {string}  sourceId               MapLibre source id (unique)
+ * @property {string}  layerId                MapLibre layer id (unique)
+ * @property {boolean} [active=false]
+ * @property {QueryConfig}        [query]
+ * @property {AggregateConfig}    [aggregate]
+ * @property {DynamicConfig}      [dynamic]   omit for a static (non-polled) layer
+ * @property {('points'|'heatmap')[]} [supportedModes=['points','heatmap']]
+ * @property {IconConfig[]}       [icons=[]]
+ * @property {StyleHandlerConfig} [styleHandler]
+ * @property {TooltipConfig}      [tooltip]
+ * @property {StyleConfig}        [style]
  */
+
+/** @returns {Object<string, DataSourceConfig>} */
 const createDataSourceRegistry = (apiBaseUrl) => ({
   taichungGarbageDynamicV2: {
     label: '台中市垃圾清運',
@@ -91,25 +94,13 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
     dataId: 'taichung_garbage_recycling_dynamic_V2',
     sourceId: 'data-live-points-source-v2',
     layerId: 'data-live-points-v2',
-    active: false,
-    query: {
-      filters: {},
-      limit: 5000
-    },
+    query: { filters: {}, limit: 5000 },
     aggregate: {
       metrics: ['count', 'avg:status'],
       groupBy: 'car_no',
-      summary: {
-        sumField: '',
-        sumLabel: 'Sum',
-        avgField: 'status',
-        avgLabel: 'Avg status'
-      }
+      summary: { sumField: '', sumLabel: 'Sum', avgField: 'status', avgLabel: 'Avg status' }
     },
-    dynamic: {
-      enabled: true,
-      pollIntervalMs: 60000
-    },
+    dynamic: { enabled: true, pollIntervalMs: 60000 },
     supportedModes: ['points'],
     icons: [
       { id: 'tcg-v2-fallback', builder: buildTruckIcon, options: { color: '#5ec8f2' } },
@@ -148,20 +139,17 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         directionalIcons: {
           directionField: 'direct',
           vehicleField: 'cartype',
-          vehiclePrefixMap: {
-            N: 'tcg-v2-garbage',
-            R: 'tcg-v2-recycle'
-          },
+          vehiclePrefixMap: { N: 'tcg-v2-garbage', R: 'tcg-v2-recycle' },
           defaultVehiclePrefix: 'tcg-v2-garbage',
           directionMap: {
-            '\u2191': 'o01',
-            '\u2197': 'o02',
-            '\u2192': 'o03',
-            '\u2198': 'o04',
-            '\u2193': 'o05',
-            '\u2199': 'o06',
-            '\u2190': 'o07',
-            '\u2196': 'o08'
+            '↑': 'o01',
+            '↗': 'o02',
+            '→': 'o03',
+            '↘': 'o04',
+            '↓': 'o05',
+            '↙': 'o06',
+            '←': 'o07',
+            '↖': 'o08'
           }
         },
         heatWeightBase: 1
@@ -179,7 +167,6 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       ]
     },
     style: {
-      mode: 'points',
       color: '#5ec8f2',
       iconId: 'tcg-v2-fallback',
       pointSize: 6,
@@ -187,19 +174,15 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       weightProperty: 'status'
     }
   },
+
   moenvIncinerators: {
     label: '焚化廠基本資料',
     detail: 'moenv_incinerators',
     dataId: 'moenv_incinerators',
     sourceId: 'data-moenv-incinerators-source',
     layerId: 'data-moenv-incinerators',
-    active: false,
-    query: {
-      filters: {},
-      limit: 1000
-    },
+    query: { filters: {}, limit: 1000 },
     aggregate: {
-      metrics: ['count'],
       summary: {
         sumField: 'dsnprcqt',
         sumLabel: '設計處理量合計 (公噸/日)',
@@ -208,13 +191,8 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         sumDigits: 0
       }
     },
-    dynamic: {
-      enabled: false
-    },
     supportedModes: ['points'],
-    icons: [
-      { id: 'incinerator', src: '/icons/incinerator.png' }
-    ],
+    icons: [{ id: 'incinerator', src: '/icons/incinerator.png' }],
     tooltip: {
       enabled: true,
       titleField: 'icnrtname',
@@ -236,20 +214,15 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         { label: '系統代碼', field: 'wepno' }
       ]
     },
-    style: {
-      mode: 'points',
-      color: '#f97316',
-      iconId: 'incinerator',
-      iconSize: 1
-    }
+    style: { color: '#f97316', iconId: 'incinerator', iconSize: 1 }
   },
+
   statZonePopulation: {
     label: 'Stat Zone Population',
     detail: 'stat_zone (P_CNT)',
     dataId: 'stat_zone_population_points',
     sourceId: 'data-stat-zone-population-source',
     layerId: 'data-stat-zone-population',
-    active: false,
     query: {
       endpoint: '/data/admin/stat-zone-points',
       useRangeRequest: true,
@@ -260,23 +233,10 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       endpoint: '/data/admin/aggregate',
       useRangeRequest: true,
       metrics: ['count', 'sum:P_CNT'],
-      summary: {
-        sumField: 'P_CNT',
-        sumLabel: 'Population',
-        avgField: '',
-        avgLabel: '',
-        sumDigits: 0
-      },
+      summary: { sumField: 'P_CNT', sumLabel: 'Population', avgField: '', avgLabel: '', sumDigits: 0 },
       priority: 100
     },
-    dynamic: {
-      enabled: false
-    },
-    supportedModes: ['points', 'heatmap'],
-    icons: [],
-    styleHandler: {
-      handler: statZonePopulationStyle
-    },
+    styleHandler: { handler: statZonePopulationStyle },
     tooltip: {
       enabled: true,
       titleField: 'name_zh',
@@ -286,25 +246,21 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         { label: 'Population', field: 'P_CNT', format: 'number', digits: 0 }
       ]
     },
-    style: {
-      mode: 'heatmap',
-      color: '#72e9b7',
-      pointSize: 6,
-      heatmapIntensity: 1.4,
-      weightProperty: 'P_CNT'
-    }
+    style: { mode: 'heatmap', color: '#72e9b7', pointSize: 6, heatmapIntensity: 1.4, weightProperty: 'P_CNT' }
   }
 })
 
+/**
+ * Normalize a partial {@link DataSourceConfig} into a complete layer entry by
+ * filling every default. This is the single source of defaults for the registry.
+ * @param {DataSourceConfig} entry
+ */
 const toLayerEntry = (entry) => {
   const supportedModes =
     Array.isArray(entry.supportedModes) && entry.supportedModes.length
       ? entry.supportedModes.filter((mode) => ['points', 'heatmap'].includes(mode))
       : ['points', 'heatmap']
-  const style = {
-    mode: 'points',
-    ...(entry.style || {})
-  }
+  const style = { mode: 'points', ...(entry.style || {}) }
   if (!supportedModes.includes(style.mode)) {
     style.mode = supportedModes[0] || 'points'
   }
@@ -318,6 +274,10 @@ const toLayerEntry = (entry) => {
     aggregate: {
       metrics: ['count'],
       ...(entry.aggregate || {})
+    },
+    dynamic: {
+      enabled: false,
+      ...(entry.dynamic || {})
     },
     styleHandler: entry.styleHandler || null,
     icons: Array.isArray(entry.icons) ? entry.icons : [],
