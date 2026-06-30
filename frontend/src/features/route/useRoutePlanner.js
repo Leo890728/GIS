@@ -53,7 +53,7 @@ const createInitialForm = () => ({
   snapToRoadMaxDistanceMeters: 200,
   costMetric: 'duration',
   costProfile: 'driving',
-  osrmBaseUrl: import.meta.env.VITE_OSRM_BASE_URL || 'http://localhost:5002',
+  osrmBaseUrl: import.meta.env.VITE_OSRM_BASE_URL || 'http://localhost:5001',
   solverTimeLimitSec: 15,
   solverRandomSeed: 1
 })

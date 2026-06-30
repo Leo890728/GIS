@@ -1,10 +1,15 @@
-export const createLayerState = (apiBaseUrl) => ({
+export const createLayerState = (apiBaseUrl) => {
+  // MapLibre fetches vector tiles from a Web Worker, which has no document base
+  // URL, so a relative `/tiles/...` (same-origin mode, empty apiBaseUrl) throws
+  // "Failed to parse URL". Resolve to an absolute origin for tile sources.
+  const tileBase = apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '')
+  return {
   county: {
     label: '縣市界線',
     sourceId: 'county-source',
     layerId: 'county-line',
     sourceLayer: 'county',
-    url: `${apiBaseUrl}/tiles/county/{z}/{x}/{y}.pbf`,
+    url: `${tileBase}/tiles/county/{z}/{x}/{y}.pbf`,
     color: '#2f7df4',
     lineWidthScale: 1,
     maxNativeZoom: 9,
@@ -16,7 +21,7 @@ export const createLayerState = (apiBaseUrl) => ({
     sourceId: 'township-source',
     layerId: 'township-line',
     sourceLayer: 'township',
-    url: `${apiBaseUrl}/tiles/township/{z}/{x}/{y}.pbf`,
+    url: `${tileBase}/tiles/township/{z}/{x}/{y}.pbf`,
     color: '#27a693',
     lineWidthScale: 1,
     maxNativeZoom: 12,
@@ -28,7 +33,7 @@ export const createLayerState = (apiBaseUrl) => ({
     sourceId: 'village-source',
     layerId: 'village-line',
     sourceLayer: 'village',
-    url: `${apiBaseUrl}/tiles/village/{z}/{x}/{y}.pbf`,
+    url: `${tileBase}/tiles/village/{z}/{x}/{y}.pbf`,
     color: '#d17827',
     lineWidthScale: 1,
     maxNativeZoom: 14,
@@ -40,7 +45,7 @@ export const createLayerState = (apiBaseUrl) => ({
     sourceId: 'stat_zone_2-source',
     layerId: 'stat_zone_2-line',
     sourceLayer: 'stat_zone_2',
-    url: `${apiBaseUrl}/tiles/stat_zone_2/{z}/{x}/{y}.pbf`,
+    url: `${tileBase}/tiles/stat_zone_2/{z}/{x}/{y}.pbf`,
     color: '#a78bfa',
     lineWidthScale: 1,
     maxNativeZoom: 12,
@@ -52,7 +57,7 @@ export const createLayerState = (apiBaseUrl) => ({
     sourceId: 'stat_zone_1-source',
     layerId: 'stat_zone_1-line',
     sourceLayer: 'stat_zone_1',
-    url: `${apiBaseUrl}/tiles/stat_zone_1/{z}/{x}/{y}.pbf`,
+    url: `${tileBase}/tiles/stat_zone_1/{z}/{x}/{y}.pbf`,
     color: '#34d399',
     lineWidthScale: 1,
     maxNativeZoom: 13,
@@ -64,11 +69,12 @@ export const createLayerState = (apiBaseUrl) => ({
     sourceId: 'stat_zone-source',
     layerId: 'stat_zone-line',
     sourceLayer: 'stat_zone',
-    url: `${apiBaseUrl}/tiles/stat_zone/{z}/{x}/{y}.pbf`,
+    url: `${tileBase}/tiles/stat_zone/{z}/{x}/{y}.pbf`,
     color: '#72e9b7',
     lineWidthScale: 1,
     maxNativeZoom: 14,
     minVisibleZoom: 12,
     active: false
   }
-})
+  }
+}
