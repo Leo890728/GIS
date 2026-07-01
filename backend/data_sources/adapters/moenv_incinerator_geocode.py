@@ -1,20 +1,30 @@
 import re
 import time
+from urllib.parse import quote
 
 from backend.data_sources.base import BaseDataSourceAdapter
 
-_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-_NOMINATIM_HEADERS = {
-    "User-Agent": "GIS-Platform/1.0 (lin24362525@gmail.com)",
+# ArcGIS World Geocoder — noticeably more accurate for Taiwan addresses than
+# Nominatim. findAddressCandidates (no result storage) needs no token.
+_ARCGIS_URL = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates"
+_ARCGIS_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-TW,zh;q=0.9",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+    ),
 }
+# ArcGIS has no strict per-second policy like Nominatim; a small courtesy delay
+# is enough to avoid throttling on a daily refresh.
+_GEOCODE_DELAY_SECONDS = 0.2
 _CITY_DISTRICT_PATTERN = re.compile(r"^(.{2,4}[市縣].{1,4}[區鄉鎮市])")
 _BUILDING_NUMBER_SUFFIX_PATTERN = re.compile(r"\d+(?:之\d+)?號.*$")
 _TRIM_SUFFIX_PATTERN = re.compile(r"[\s,，]+$")
 
 
 class MoenvIncineratorGeocodeAdapter(BaseDataSourceAdapter):
-    """Fetches MOENV incinerator data and geocodes addresses via Nominatim.
+    """Fetches HTTP JSON data and geocodes an address field via ArcGIS.
 
     Geocode results are persisted in a shared SQLite CacheDb instance.
     Failed entries are retried after geocode_retry_days (default 7).
@@ -51,7 +61,7 @@ class MoenvIncineratorGeocodeAdapter(BaseDataSourceAdapter):
                 else:
                     if cache_db:
                         cache_db.set_geocode_failed(address)
-                time.sleep(1.1)
+                time.sleep(_GEOCODE_DELAY_SECONDS)
             elif cached is not False:
                 row["_lng"] = cached["lng"]
                 row["_lat"] = cached["lat"]
@@ -78,20 +88,40 @@ class MoenvIncineratorGeocodeAdapter(BaseDataSourceAdapter):
         return CacheDb(db_path)
 
     def _geocode(self, address, fetcher):
-        """Try progressively simpler queries to maximize Nominatim hit rate."""
+        """Try progressively simpler queries to maximize ArcGIS hit rate."""
         for query in self._build_queries(address):
             try:
                 result = fetcher({
-                    "url": f"{_NOMINATIM_URL}?q={query}&format=json&limit=1&countrycodes=tw",
+                    "url": (
+                        f"{_ARCGIS_URL}?SingleLine={quote(query)}"
+                        "&f=json&outSR=4326"
+                        "&outFields=Addr_type,Match_addr,StAddr,City"
+                        "&maxLocations=6"
+                    ),
                     "method": "GET",
-                    "headers": _NOMINATIM_HEADERS,
+                    "headers": _ARCGIS_HEADERS,
                 })
-                if result and isinstance(result, list):
-                    return {"lng": float(result[0]["lon"]), "lat": float(result[0]["lat"])}
+                coords = self._best_candidate(result)
+                if coords:
+                    return coords
             except Exception:
                 pass
-            time.sleep(1.1)
+            time.sleep(_GEOCODE_DELAY_SECONDS)
         return None
+
+    @staticmethod
+    def _best_candidate(result):
+        """Pick the top ArcGIS candidate (candidates are score-sorted desc)."""
+        if not isinstance(result, dict):
+            return None
+        candidates = result.get("candidates")
+        if not candidates:
+            return None
+        location = candidates[0].get("location") or {}
+        x, y = location.get("x"), location.get("y")
+        if x is None or y is None:
+            return None
+        return {"lng": float(x), "lat": float(y)}
 
     @staticmethod
     def _build_queries(address):
