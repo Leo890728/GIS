@@ -1,4 +1,4 @@
-import { statZonePopulationStyle, taichungGarbageVehicle } from './style-handlers'
+import { policeBroadcastingServiceStyle, statZonePopulationStyle, taichungGarbageVehicle } from './style-handlers'
 import { buildTruckIcon } from './icons'
 
 /**
@@ -225,6 +225,49 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
     style: {
       points: { color: '#72e9b7', pointSize: 6 },
       heatmap: { weightProperty: 'P_CNT', heatmapIntensity: 1.4 }
+    }
+  },
+
+  policeBroadcastingService: {
+    label: '警廣即時路況',
+    detail: 'police_broadcasting_service',
+    dataId: 'police_broadcasting_service',
+    sourceId: 'data-police-broadcasting-service-source',
+    layerId: 'data-police-broadcasting-service',
+    query: { filters: {}, limit: 5000 },
+    aggregate: { metrics: ['count'], groupBy: 'roadtype' },
+    dynamic: { enabled: true, pollIntervalMs: 300000 },
+    styleHandler: {
+      handler: policeBroadcastingServiceStyle,
+      params: {
+        roadtypeField: 'roadtype',
+        colorMap: {
+          事故: '#ef4444',      // 紅色
+          交通障礙: '#f97316',  // 橘色
+          道路施工: '#facc15'   // 黃色
+        },
+        fallbackColor: '#9ca3af' // 灰色 (其他)
+      }
+    },
+    tooltip: {
+      enabled: true,
+      titleTemplate: '{areaNm}',
+      items: [
+        { label: '路況類別', field: 'roadtype' },
+        { label: '地區', field: 'areaNm' },
+        { label: '道路名稱', field: 'road' },
+        { label: '路況說明', field: 'comment' },
+        { label: '方向', field: 'direction' },
+        { label: '資料來源', field: 'srcdetail' },
+        { label: '發生日期', field: 'happendate' },
+        { label: '發生時間', field: 'happentime' },
+        { label: '修改時間', field: 'modDttm', format: 'datetime' },
+        { label: 'UID', field: 'UID' }
+      ]
+    },
+    style: {
+      points: { color: '#3b82f6', pointSize: 6 },
+      heatmap: { heatmapIntensity: 1 }
     }
   }
 })

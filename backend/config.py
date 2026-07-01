@@ -107,4 +107,20 @@ DATA_SOURCES = {
             "lat": "_lat",
         },
     },
+    "police_broadcasting_service": {
+        "adapter": "generic_http_json",
+        "url": "https://rtr.pbs.gov.tw/NMP103_PbsWS/resources/roadData/opendata",
+        "method": "GET",
+        "rows_path": ["result"],
+        "refresh_seconds": 300,
+        "fields": {
+            # UID = 唯一編號
+            "id_parts": ["UID"],
+            # x1 = 經度, y1 = 緯度
+            "lng": "x1",
+            "lat": "y1",
+            # modDttm = 修改時間
+            "timestamp": "modDttm",
+        },
+    },
 }
