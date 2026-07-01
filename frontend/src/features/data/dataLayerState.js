@@ -278,6 +278,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
     sourceId: 'data-taichung-cleaning-teams-source',
     layerId: 'data-taichung-cleaning-teams',
     query: { filters: {}, limit: 1000 },
+    icons: [{ id: 'cleaning-team', src: '/icons/cleaning-team.png' }],
     tooltip: {
       enabled: true,
       titleTemplate: '{隊別}',
@@ -290,7 +291,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       ]
     },
     style: {
-      points: { color: '#16a34a', pointSize: 6 }
+      points: { color: '#16a34a', iconId: 'cleaning-team', iconSize: 0.12 }
     }
   }
 })
