@@ -1,5 +1,8 @@
 const isFiniteNumber = (value) => Number.isFinite(value)
 
+// The single place that encodes a handler's per-feature `style` into the
+// `__style_*` properties MapLibre reads. All style outputs (incl. iconId) go
+// through `result.style`; `derivedFields` is reserved for display data only.
 const mergeFeatureProperties = (feature, style, derivedFields) => {
   const baseProperties = feature.properties && typeof feature.properties === 'object' ? feature.properties : {}
   const nextProperties = {
@@ -7,9 +10,11 @@ const mergeFeatureProperties = (feature, style, derivedFields) => {
     ...(derivedFields || {})
   }
 
-  if (style?.pointColor) nextProperties.__style_pointColor = style.pointColor
-  if (isFiniteNumber(style?.pointSize)) nextProperties.__style_pointSize = style.pointSize
-  if (isFiniteNumber(style?.heatWeight)) nextProperties.__style_heatWeight = style.heatWeight
+  const s = style || {}
+  if (typeof s.color === 'string' && s.color) nextProperties.__style_color = s.color
+  if (typeof s.iconId === 'string' && s.iconId) nextProperties.__style_iconId = s.iconId
+  if (isFiniteNumber(s.pointSize)) nextProperties.__style_pointSize = s.pointSize
+  if (isFiniteNumber(s.heatWeight)) nextProperties.__style_heatWeight = s.heatWeight
 
   return {
     ...feature,

@@ -18,7 +18,6 @@ export const statZonePopulationStyle = (ctx) => {
         heatWeight: 0.3
       },
       derivedFields: {
-        __style_heatWeight: 0.3,
         P_CNT: 0
       }
     }
@@ -32,7 +31,6 @@ export const statZonePopulationStyle = (ctx) => {
       heatWeight: Number(normalizedWeight.toFixed(3))
     },
     derivedFields: {
-      __style_heatWeight: Number(normalizedWeight.toFixed(3)),
       P_CNT: population
     }
   }

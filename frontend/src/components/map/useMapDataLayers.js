@@ -233,7 +233,7 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
             visibility: getLayerVisibility(entry, 'points')
           },
           paint: {
-            'circle-color': ['coalesce', ['get', '__style_pointColor'], entry.style.color || '#f2c94c'],
+            'circle-color': ['coalesce', ['get', '__style_color'], entry.style.color || '#f2c94c'],
             'circle-radius': getCircleRadiusExpr(entry),
             'circle-opacity': 0.82,
             'circle-stroke-color': '#0b1220',
@@ -303,7 +303,7 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
     }
 
     if (layer.type === 'circle') {
-      map.setPaintProperty(pointsLayerId, 'circle-color', ['coalesce', ['get', '__style_pointColor'], entry.style.color || '#f2c94c'])
+      map.setPaintProperty(pointsLayerId, 'circle-color', ['coalesce', ['get', '__style_color'], entry.style.color || '#f2c94c'])
       map.setPaintProperty(pointsLayerId, 'circle-radius', getCircleRadiusExpr(entry))
     }
   }
