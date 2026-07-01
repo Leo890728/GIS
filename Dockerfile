@@ -25,4 +25,7 @@ EXPOSE 5000
 
 # Default command = web server. The capture worker overrides `command` in
 # docker-compose.yml with `python -m backend.worker`.
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "backend.app:create_app()"]
+# gthread workers so --timeout guards against a hung worker rather than capping
+# a single request's length (long road-smoothing streams must not be killed).
+# Compose overrides this command.
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--worker-class", "gthread", "--threads", "4", "--timeout", "120", "backend.app:create_app()"]

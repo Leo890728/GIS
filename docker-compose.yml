@@ -39,7 +39,10 @@ services:
 
   web:
     build: .
-    command: gunicorn --bind 0.0.0.0:5000 --workers 2 "backend.app:create_app()"
+    # gthread workers: --timeout is a worker-heartbeat (hang) guard, not a
+    # per-request limit, so long road-smoothing streams survive while other
+    # requests are still served by the worker's other threads.
+    command: gunicorn --bind 0.0.0.0:5000 --workers 2 --worker-class gthread --threads ${GUNICORN_THREADS:-4} --timeout ${GUNICORN_TIMEOUT:-120} "backend.app:create_app()"
     ports:
       - "5000:5000"
     environment:
