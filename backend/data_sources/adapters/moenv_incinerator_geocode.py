@@ -5,7 +5,10 @@ from urllib.parse import quote
 from backend.data_sources.base import BaseDataSourceAdapter
 
 # ArcGIS World Geocoder — noticeably more accurate for Taiwan addresses than
-# Nominatim. findAddressCandidates (no result storage) needs no token.
+# Nominatim. We call the tokenless free tier with forStorage=false (temporary
+# use). Results are still cached locally in CacheDb purely to cut request
+# volume; persisting geocodes under Esri's terms (forStorage=true) would need a
+# token/credits, which can be added at the config layer if ever required.
 _ARCGIS_URL = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates"
 _ARCGIS_HEADERS = {
     "Accept": "application/json, text/plain, */*",
@@ -94,7 +97,7 @@ class MoenvIncineratorGeocodeAdapter(BaseDataSourceAdapter):
                 result = fetcher({
                     "url": (
                         f"{_ARCGIS_URL}?SingleLine={quote(query)}"
-                        "&f=json&outSR=4326"
+                        "&f=json&outSR=4326&forStorage=false"
                         "&outFields=Addr_type,Match_addr,StAddr,City"
                         "&maxLocations=6"
                     ),
