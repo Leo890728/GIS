@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   activePropertiesAt,
+  clipTrackToWindow,
   interpolateInPath,
   interpolateSegmentsAt,
   isWithinTrackSegment,
@@ -141,6 +142,36 @@ describe('normalizeTrackSegments', () => {
   it('handles a missing/empty track', () => {
     expect(normalizeTrackSegments(null)).toEqual([])
     expect(normalizeTrackSegments({})).toEqual([])
+  })
+})
+
+describe('clipTrackToWindow', () => {
+  const track = {
+    key: 'car-1',
+    properties: { car: 'A' },
+    segments: [
+      { path: [pt(0, 0, 0), pt(100, 1, 0), pt(200, 2, 0)] },
+      { path: [pt(500, 5, 0), pt(600, 6, 0)] }
+    ]
+  }
+
+  it('keeps only vertices inside the inclusive window and preserves other fields', () => {
+    const out = clipTrackToWindow(track, 100, 500)
+    expect(out.key).toBe('car-1')
+    expect(out.properties).toEqual({ car: 'A' })
+    expect(out.segments).toEqual([
+      { path: [pt(100, 1, 0), pt(200, 2, 0)] },
+      { path: [pt(500, 5, 0)] }
+    ])
+  })
+
+  it('drops segments left empty by the window', () => {
+    const out = clipTrackToWindow(track, 0, 200)
+    expect(out.segments).toEqual([{ path: [pt(0, 0, 0), pt(100, 1, 0), pt(200, 2, 0)] }])
+  })
+
+  it('returns the whole track (all segments) when the window is unbounded', () => {
+    expect(clipTrackToWindow(track, null, undefined).segments).toEqual(track.segments)
   })
 })
 

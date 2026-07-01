@@ -1,5 +1,6 @@
 import { fetchHistoryTrack } from './simulatorApi'
 import {
+  clipTrackToWindow,
   normalizeTrackSegments,
   segmentsToEndpointsGeoJson,
   segmentsToLineGeoJson,
@@ -30,7 +31,7 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
     const segments = normalizeTrackSegments(track)
     const baseLine = segmentsToLineGeoJson(segments)
     if (!baseLine) {
-      state.trackError = 'No trajectory for this point.'
+      state.trackError = '此點位沒有可用軌跡。'
       return
     }
     selectedTrackSegments = segments
@@ -88,15 +89,17 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
     const key = state.selected.key
     const lo = state.playFrom ?? state.from
     const hi = state.playTo ?? state.to
-    // Smooth tracks are streamed for the full from..to range; only reuse them
-    // when the play window IS the full range. With a session/window selected,
-    // fetch a window-bounded track so the overlay doesn't bleed into other
-    // sessions.
-    const isFullRange = lo === state.from && hi === state.to
-    const cached = isFullRange ? getSmoothTracks().find((track) => track.key === key) : null
+    // Smooth tracks are streamed (and OSRM-smoothed) once for the full from..to
+    // range. If they're loaded, reuse the entity's track by clipping it to the
+    // active window — this matches the selected session/day (no bleed into other
+    // sessions) without triggering a redundant OSRM recompute on the backend.
+    const cached = getSmoothTracks().find((track) => track.key === key)
     if (cached) {
-      showTrack(cached)
-      return
+      const windowed = clipTrackToWindow(cached, lo, hi)
+      if (windowed.segments.length) {
+        showTrack(windowed)
+        return
+      }
     }
     state.trackLoading = true
     state.trackError = ''
@@ -105,10 +108,10 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
       if (state.selected?.key !== key) return // selection changed mid-flight
       const track = (response?.tracks || []).find((entry) => entry.key === key)
       if (track) showTrack(track)
-      else state.trackError = 'No trajectory for this point.'
+      else state.trackError = '此點位沒有可用軌跡。'
     } catch (error) {
       console.error(error)
-      state.trackError = 'Failed to load trajectory.'
+      state.trackError = '載入軌跡失敗。'
     } finally {
       state.trackLoading = false
     }

@@ -99,6 +99,21 @@ export const normalizeSmoothTracks = (tracks) =>
     }))
     .filter((track) => track.segments.length > 0)
 
+// Clip a smooth track's segments to the inclusive [lo, hi] time window so an
+// already-loaded full-range track can back a windowed (session/day) overlay
+// without a second OSRM fetch. Vertices are kept by `tMs`; empty segments drop.
+export const clipTrackToWindow = (track, lo, hi) => {
+  const from = Number(lo)
+  const to = Number(hi)
+  const bounded = Number.isFinite(from) && Number.isFinite(to)
+  const segments = (track?.segments || [])
+    .map((seg) => ({
+      path: (seg.path || []).filter((point) => !bounded || (point.tMs >= from && point.tMs <= to))
+    }))
+    .filter((seg) => seg.path.length > 0)
+  return { ...track, segments }
+}
+
 export const segmentsToLineGeoJson = (segments) => {
   const features = segments
     .map((seg) => seg.path.map((point) => [point.lng, point.lat]))
