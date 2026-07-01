@@ -104,6 +104,40 @@ class MoenvIncineratorGeocodeAdapterTestCase(unittest.TestCase):
         self.assertEqual(address, adapter.geocode_calls[0])
         self.assertEqual([(address, 120.222, 24.333)], cache_db.saved_success)
 
+    def test_best_candidate_reads_top_arcgis_location(self):
+        result = {
+            "candidates": [
+                {"location": {"x": 120.65, "y": 24.15}, "score": 100},
+                {"location": {"x": 121.0, "y": 25.0}, "score": 80},
+            ]
+        }
+        coords = MoenvIncineratorGeocodeAdapter._best_candidate(result)
+        self.assertEqual({"lng": 120.65, "lat": 24.15}, coords)
+
+    def test_best_candidate_handles_empty_or_bad_results(self):
+        self.assertIsNone(MoenvIncineratorGeocodeAdapter._best_candidate({"candidates": []}))
+        self.assertIsNone(MoenvIncineratorGeocodeAdapter._best_candidate({}))
+        self.assertIsNone(MoenvIncineratorGeocodeAdapter._best_candidate(None))
+        self.assertIsNone(
+            MoenvIncineratorGeocodeAdapter._best_candidate({"candidates": [{"location": {}}]})
+        )
+
+    @patch("backend.data_sources.adapters.moenv_incinerator_geocode.time.sleep", lambda *_: None)
+    def test_geocode_queries_arcgis_and_returns_first_hit(self):
+        adapter = MoenvIncineratorGeocodeAdapter()
+        seen_urls = []
+
+        def fetcher(request_data):
+            seen_urls.append(request_data["url"])
+            return {"candidates": [{"location": {"x": 120.5, "y": 24.5}}]}
+
+        coords = adapter._geocode("臺中市太平區太平路12號", fetcher)
+
+        self.assertEqual({"lng": 120.5, "lat": 24.5}, coords)
+        self.assertEqual(1, len(seen_urls))  # stops at first successful query
+        self.assertIn("geocode.arcgis.com", seen_urls[0])
+        self.assertIn("SingleLine=", seen_urls[0])
+
     def test_build_queries_produces_progressive_fallbacks(self):
         address = "新竹縣竹北市尚義里西濱路二段609號"
         queries = MoenvIncineratorGeocodeAdapter._build_queries(address)

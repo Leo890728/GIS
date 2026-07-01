@@ -136,4 +136,21 @@ DATA_SOURCES = {
             "timestamp": "modDttm",
         },
     },
+    "taichung_cleaning_teams": {
+        "adapter": "http_json_geocode",
+        "url": (
+            "https://newdatacenter.taichung.gov.tw/api/v1/no-auth/resource.download"
+            "?rid=9bc93835-3e83-459b-8469-f76b1a6214d9"
+        ),
+        "refresh_seconds": 86400,
+        # 資料只有地址,無座標,透過 Nominatim geocode 辦公室地址
+        "geocode_address_field": "辦公室地址",
+        "geocode_retry_days": 7,
+        "cache_db_path": str(CACHE_DB_PATH),
+        "fields": {
+            "id_parts": ["隊別"],
+            "lng": "_lng",
+            "lat": "_lat",
+        },
+    },
 }

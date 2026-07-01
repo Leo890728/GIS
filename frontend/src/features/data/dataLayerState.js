@@ -269,6 +269,30 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       points: { color: '#3b82f6', pointSize: 6 },
       heatmap: { heatmapIntensity: 1 }
     }
+  },
+
+  taichungCleaningTeams: {
+    label: '臺中市清潔隊',
+    detail: 'taichung_cleaning_teams',
+    dataId: 'taichung_cleaning_teams',
+    sourceId: 'data-taichung-cleaning-teams-source',
+    layerId: 'data-taichung-cleaning-teams',
+    query: { filters: {}, limit: 1000 },
+    icons: [{ id: 'cleaning-team', src: '/icons/cleaning-team.png' }],
+    tooltip: {
+      enabled: true,
+      titleTemplate: '{隊別}',
+      items: [
+        { label: '隊別', field: '隊別' },
+        { label: '辦公室地址', field: '辦公室地址' },
+        { label: '負責轄區', field: '負責轄區' },
+        { label: '市話', field: '市話' },
+        { label: '傳真', field: '傳真' }
+      ]
+    },
+    style: {
+      points: { color: '#16a34a', iconId: 'cleaning-team', iconSize: 0.12 }
+    }
   }
 })
 
