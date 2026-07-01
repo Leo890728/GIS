@@ -11,6 +11,8 @@ Window config shape (under a source's ``history.active_window``)::
 No window (or empty ``ranges``) means "always capture". A range whose start is
 later than its end (e.g. ``["22:00", "02:00"]``) spans midnight; for the
 after-midnight portion the weekday is matched against the day the window started.
+A range whose start equals its end (e.g. ``["00:00", "00:00"]``) covers the
+whole day.
 """
 
 from datetime import time
@@ -49,7 +51,10 @@ def is_within_window(now_local, window):
     for start_s, end_s in ranges:
         start = _parse_hhmm(start_s)
         end = _parse_hhmm(end_s)
-        if start <= end:
+        if start == end:               # whole day (e.g. ["00:00", "00:00"])
+            in_range = True
+            day_for_check = weekday
+        elif start < end:
             in_range = start <= t < end
             day_for_check = weekday
         elif t >= start:           # overnight, evening portion -> today

@@ -38,6 +38,19 @@ class IsWithinWindowTestCase(unittest.TestCase):
         self.assertFalse(is_within_window(_at(2026, 6, 30, 2, 0), win))   # end exclusive
         self.assertFalse(is_within_window(_at(2026, 6, 30, 12, 0), win))
 
+    def test_whole_day_range_when_start_equals_end(self):
+        win = {"ranges": [["00:00", "00:00"]]}
+        self.assertTrue(is_within_window(_at(2026, 6, 30, 0, 0), win))
+        self.assertTrue(is_within_window(_at(2026, 6, 30, 12, 0), win))
+        self.assertTrue(is_within_window(_at(2026, 6, 30, 23, 59), win))
+
+    def test_whole_day_range_still_honours_days_filter(self):
+        dt = _at(2026, 6, 30, 12, 0)
+        today = _NAMES[dt.weekday()]
+        other = _NAMES[(dt.weekday() + 1) % 7]
+        self.assertTrue(is_within_window(dt, {"ranges": [["09:00", "09:00"]], "days": [today]}))
+        self.assertFalse(is_within_window(dt, {"ranges": [["09:00", "09:00"]], "days": [other]}))
+
     def test_days_filter_same_day(self):
         dt = _at(2026, 6, 30, 9, 0)
         today = _NAMES[dt.weekday()]

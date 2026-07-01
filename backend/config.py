@@ -85,6 +85,11 @@ DATA_SOURCES = {
 			#     "days": ["mon", "tue", "wed", "thu", "fri", "sat"],
 			#     "ranges": [["06:00", "20:00"]],
 			# },
+            "active_window": {
+			    "timezone": "Asia/Taipei",
+			    "days": ["mon", "tue", "thu", "fri", "sat"],
+			    "ranges": [["06:00", "00:00"]],
+			},
 		},
 	},
     "stat_zone_population_points": {
