@@ -143,7 +143,7 @@ DATA_SOURCES = {
             "?rid=9bc93835-3e83-459b-8469-f76b1a6214d9"
         ),
         "refresh_seconds": 86400,
-        # 資料只有地址,無座標,透過 Nominatim geocode 辦公室地址
+        # 資料只有地址,無座標,透過 ArcGIS geocode 辦公室地址
         "geocode_address_field": "辦公室地址",
         "geocode_retry_days": 7,
         "cache_db_path": str(CACHE_DB_PATH),
