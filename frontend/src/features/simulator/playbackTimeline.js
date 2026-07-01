@@ -20,16 +20,27 @@ export const nearestFrame = (frames, ms) => {
   return lo
 }
 
-// Split ascending capture timestamps into [{ from, to }] sessions, breaking
-// whenever the gap between consecutive frames exceeds `gapFactor` poll cycles.
-export const deriveSessionSegments = (frames, intervalSeconds, gapFactor) => {
+// True when two epoch-ms instants fall on the same local calendar day.
+const sameLocalDay = (a, b) => {
+  const da = new Date(a)
+  const db = new Date(b)
+  return (
+    da.getFullYear() === db.getFullYear() &&
+    da.getMonth() === db.getMonth() &&
+    da.getDate() === db.getDate()
+  )
+}
+
+// Group ascending capture timestamps into one [{ from, to }] session per local
+// calendar day. Each session spans that day's first to last frame; intra-day
+// recording pauses are absorbed so the recording unit is a whole day.
+export const deriveSessionSegments = (frames) => {
   if (!frames.length) return []
-  const gapMs = (Number(intervalSeconds) || 60) * 1000 * gapFactor
   const segments = []
   let from = frames[0]
   let prev = frames[0]
   for (let i = 1; i < frames.length; i += 1) {
-    if (frames[i] - prev > gapMs) {
+    if (!sameLocalDay(frames[i], prev)) {
       segments.push({ from, to: prev })
       from = frames[i]
     }

@@ -33,24 +33,29 @@ describe('nearestFrame', () => {
 
 describe('deriveSessionSegments', () => {
   it('returns an empty list for no frames', () => {
-    expect(deriveSessionSegments([], 60, 4)).toEqual([])
+    expect(deriveSessionSegments([])).toEqual([])
   })
 
-  it('keeps contiguous frames in a single session', () => {
-    // interval 60s, gapFactor 4 -> gap threshold 240s = 240000ms.
-    const frames = [0, 60000, 120000, 180000]
-    expect(deriveSessionSegments(frames, 60, 4)).toEqual([{ from: 0, to: 180000 }])
+  it('keeps a single day in one session regardless of intra-day pauses', () => {
+    // Three frames on the same local day, with a multi-hour gap between them.
+    const a = new Date(2026, 5, 18, 6, 0).getTime()
+    const b = new Date(2026, 5, 18, 12, 0).getTime()
+    const c = new Date(2026, 5, 18, 20, 0).getTime()
+    expect(deriveSessionSegments([a, b, c])).toEqual([{ from: a, to: c }])
   })
 
-  it('splits into sessions when the gap exceeds the threshold', () => {
-    const frames = [0, 60000, 1_000_000, 1_060_000]
-    expect(deriveSessionSegments(frames, 60, 4)).toEqual([
-      { from: 0, to: 60000 },
-      { from: 1_000_000, to: 1_060_000 }
+  it('starts a new session at each calendar-day boundary', () => {
+    const d1a = new Date(2026, 5, 18, 9, 0).getTime()
+    const d1b = new Date(2026, 5, 18, 23, 0).getTime()
+    const d2a = new Date(2026, 5, 19, 5, 0).getTime()
+    const d2b = new Date(2026, 5, 19, 9, 0).getTime()
+    expect(deriveSessionSegments([d1a, d1b, d2a, d2b])).toEqual([
+      { from: d1a, to: d1b },
+      { from: d2a, to: d2b }
     ])
   })
 
   it('treats a single frame as a zero-length session', () => {
-    expect(deriveSessionSegments([500], 60, 4)).toEqual([{ from: 500, to: 500 }])
+    expect(deriveSessionSegments([500])).toEqual([{ from: 500, to: 500 }])
   })
 })

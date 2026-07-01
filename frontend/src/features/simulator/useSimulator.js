@@ -10,10 +10,6 @@ import { useSimulatorShortcuts } from './useSimulatorShortcuts'
 const SPEED_PRESETS = [1, 10, 30, 60]
 const DEFAULT_SPEED = 30
 
-// A gap between captures longer than this many poll cycles is treated as a
-// recording interruption that splits the timeline into separate sessions.
-const GLOBAL_GAP_FACTOR = 4
-
 const createState = () => ({
   active: false,
   dataId: '',
@@ -208,8 +204,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   // --- Sessions / live -------------------------------------------------------
 
-  // Split the capture timeline into recording sessions on large gaps.
-  const deriveSegments = () => deriveSessionSegments(state.frames, state.intervalSeconds, GLOBAL_GAP_FACTOR)
+  // Group the capture timeline into one recording session per calendar day.
+  const deriveSegments = () => deriveSessionSegments(state.frames)
 
   const live = useLiveMode({
     apiBaseUrl,
