@@ -40,22 +40,22 @@ const isLoadingChildren = computed(() => props.rangeNodeLoading?.[props.node.id]
 
 const rangeMeta = computed(() => {
   if (props.node.level === 'county') {
-    return `${children.value.length} townships`
+    return `${children.value.length} 個鄉鎮市區`
   }
   if (props.node.level === 'township') {
-    return `${children.value.length} villages`
+    return `${children.value.length} 個村里`
   }
   if (props.node.level === 'village') {
-    return `${statZoneCount.value} statZones`
+    return `${statZoneCount.value} 個統計區`
   }
-  return `${selectedLeafCount.value}/${leafIds.value.length} selected`
+  return `${selectedLeafCount.value}/${leafIds.value.length} 已選取`
 })
 
 const leafMeta = computed(() => {
   if (props.node.level === 'village') {
-    return `${statZoneCount.value} statZones`
+    return `${statZoneCount.value} 個統計區`
   }
-  return props.node.code || 'N/A'
+  return props.node.code || '無代碼'
 })
 
 const nodeClass = computed(() => {
@@ -107,7 +107,7 @@ const toggleExpand = () => {
         <span class="range-color-dot" :style="{ backgroundColor: node.color }"></span>
         <div class="region-label-wrap">
           <p class="region-name" :class="{ sub: depth > 0 }">{{ node.name }}</p>
-          <p class="region-meta">{{ isLoadingChildren ? 'Loading statZones...' : rangeMeta }}</p>
+          <p class="region-meta">{{ isLoadingChildren ? '載入統計區中...' : rangeMeta }}</p>
         </div>
         <ChevronDown v-if="expanded" class="caret" :size="14" />
         <ChevronRight v-else class="caret" :size="14" />

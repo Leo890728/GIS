@@ -166,7 +166,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
       return true
     } catch (error) {
       if (layerRequestSequence.get(key) !== nextSequence) return false
-      runtime.lastError = error?.message || 'Failed to query data points'
+      runtime.lastError = error?.message || '資料點查詢失敗'
       dataLayerGeoJson.value[key] = emptyFeatureCollection()
       return false
     } finally {
@@ -239,7 +239,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
       if (requestId === aggregateRequestSequence) {
         dataAggregate.value = {
           loading: false,
-          error: 'Aggregate unavailable',
+          error: '統計資料暫時無法取得',
           layerKey,
           layerLabel: layer.label || layerKey,
           config: layer.aggregate?.summary || {},

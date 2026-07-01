@@ -60,7 +60,7 @@ const onSliderInput = (event) => {
 <template>
   <section class="sim-panel">
     <div class="sim-section">
-      <p class="sim-label">Live Dataset</p>
+      <p class="sim-label">即時資料集</p>
       <div class="sim-dataset-list">
         <button
           v-for="candidate in simulatorCandidates"
@@ -72,7 +72,7 @@ const onSliderInput = (event) => {
         >
           {{ candidate.label }}
         </button>
-        <p v-if="!simulatorCandidates.length" class="sim-empty">No live datasets available.</p>
+        <p v-if="!simulatorCandidates.length" class="sim-empty">目前沒有可播放的即時資料集。</p>
       </div>
     </div>
 
@@ -80,7 +80,7 @@ const onSliderInput = (event) => {
 
     <div v-if="simulatorState.active && hasRange" class="sim-section">
       <div v-if="segments.length > 1" class="sim-sessions">
-        <p class="sim-label">Recording sessions</p>
+        <p class="sim-label">錄製區段</p>
         <div class="sim-session-list">
           <button
             class="sim-session-btn"
@@ -88,7 +88,7 @@ const onSliderInput = (event) => {
             type="button"
             @click="emit('select-segment', -1)"
           >
-            All
+            全部
           </button>
           <button
             v-for="(segment, index) in segments"
@@ -105,7 +105,7 @@ const onSliderInput = (event) => {
 
       <div class="sim-time-row">
         <span class="sim-time-current tnum">{{ fmt(simulatorState.currentTime) }}</span>
-        <span v-if="simulatorState.loading" class="sim-status">loading…</span>
+        <span v-if="simulatorState.loading" class="sim-status">載入中...</span>
       </div>
 
       <input
@@ -124,14 +124,14 @@ const onSliderInput = (event) => {
       </div>
 
       <div class="sim-transport">
-        <button class="sim-ctrl" type="button" aria-label="Previous frame" @click="emit('step', -1)">
+        <button class="sim-ctrl" type="button" aria-label="上一格" @click="emit('step', -1)">
           <SkipBack :size="16" />
         </button>
-        <button class="sim-ctrl play" type="button" :aria-label="simulatorState.playing ? 'Pause' : 'Play'" @click="emit('toggle-play')">
+        <button class="sim-ctrl play" type="button" :aria-label="simulatorState.playing ? '暫停' : '播放'" @click="emit('toggle-play')">
           <Pause v-if="simulatorState.playing" :size="18" />
           <Play v-else :size="18" />
         </button>
-        <button class="sim-ctrl" type="button" aria-label="Next frame" @click="emit('step', 1)">
+        <button class="sim-ctrl" type="button" aria-label="下一格" @click="emit('step', 1)">
           <SkipForward :size="16" />
         </button>
       </div>
@@ -155,7 +155,7 @@ const onSliderInput = (event) => {
         type="button"
         @click="emit('toggle-smooth')"
       >
-        {{ simulatorState.smooth ? '✓ ' : '' }}Road smoothing (OSRM)
+        {{ simulatorState.smooth ? '✓ ' : '' }}道路平滑化 (OSRM)
       </button>
 
       <div v-if="simulatorState.smoothing" class="sim-smooth-progress">
@@ -167,16 +167,16 @@ const onSliderInput = (event) => {
           ></div>
         </div>
         <span class="sim-progress-label">
-          Smoothing… 計算道路路徑<template v-if="smoothTotal"> · {{ smoothDone }}/{{ smoothTotal }} ({{ smoothPct }}%)</template>
+          道路平滑化中... 計算道路路徑<template v-if="smoothTotal"> · {{ smoothDone }}/{{ smoothTotal }} ({{ smoothPct }}%)</template>
         </span>
       </div>
 
       <div class="sim-meta">
-        <span>{{ simulatorState.featureCount }} points</span>
-        <span>{{ simulatorState.count }} captures</span>
+        <span>{{ simulatorState.featureCount }} 點位</span>
+        <span>{{ simulatorState.count }} 筆擷取</span>
       </div>
 
-      <button class="sim-exit" type="button" @click="emit('stop')">Exit playback</button>
+      <button class="sim-exit" type="button" @click="emit('stop')">結束播放</button>
     </div>
   </section>
 </template>

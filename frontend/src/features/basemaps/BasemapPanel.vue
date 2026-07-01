@@ -26,8 +26,8 @@ const activeCount = computed(() => basemapItems.value.filter((item) => item.enab
 <template>
   <section class="layers-panel">
     <div class="panel-title-row">
-      <h3>Basemap</h3>
-      <span class="count-badge">{{ activeCount }} active</span>
+      <h3>底圖</h3>
+      <span class="count-badge">{{ activeCount }} 啟用</span>
     </div>
 
     <article v-for="item in basemapItems" :key="item.key" class="region-card expanded">

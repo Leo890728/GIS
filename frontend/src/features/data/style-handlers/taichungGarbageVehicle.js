@@ -65,22 +65,22 @@ export const taichungGarbageVehicle = (ctx, params) => {
 
   let color = p.normalColor
   let pointSize = 6
-  let speedBand = 'low'
+  let speedBand = '低速'
   if (isFiniteNumber(speed)) {
     if (speed >= 50) {
       color = p.fastColor
       pointSize = 8
-      speedBand = 'high'
+      speedBand = '高速'
     } else if (speed >= 30) {
       color = p.mediumColor
       pointSize = 7
-      speedBand = 'medium'
+      speedBand = '中速'
     }
   }
   if (isOverSpeed) {
     color = p.overSpeedColor
     pointSize = 9
-    speedBand = 'overspeed'
+    speedBand = '超速'
   }
 
   const heatWeightBase = toNumber(p.heatWeightBase) ?? 1
@@ -97,7 +97,7 @@ export const taichungGarbageVehicle = (ctx, params) => {
       ...(iconId ? { iconId } : {})
     },
     derivedFields: {
-      OverSpeedText: isOverSpeed ? 'Yes' : 'No',
+      OverSpeedText: isOverSpeed ? '是' : '否',
       SpeedBand: speedBand
     }
   }

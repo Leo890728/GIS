@@ -41,7 +41,7 @@ export const useFrameRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry,
     } catch (error) {
       if (sequence !== frameSequence) return
       console.error(error)
-      state.error = 'Failed to load frame.'
+      state.error = '載入影格失敗。'
     } finally {
       if (sequence === frameSequence) state.loading = false
     }

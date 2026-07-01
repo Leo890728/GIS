@@ -270,14 +270,14 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     try {
       const range = await fetchHistoryRange(apiBaseUrl, dataId)
       if (!range || !range.count || !range.from) {
-        state.error = 'No history has been recorded for this dataset yet.'
+        state.error = '這個資料集尚未記錄歷史資料。'
         state.active = false
         state.dataId = ''
         return
       }
       const entry = dataLayers.enterSimulator(dataId)
       if (!entry) {
-        state.error = 'No matching map layer for this dataset.'
+        state.error = '找不到此資料集對應的地圖圖層。'
         return
       }
       layerEntry = entry
@@ -307,7 +307,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       }
     } catch (error) {
       console.error(error)
-      state.error = 'Failed to load history.'
+      state.error = '載入歷史資料失敗。'
     } finally {
       state.loading = false
     }

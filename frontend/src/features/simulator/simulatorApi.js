@@ -3,21 +3,21 @@ const toIso = (ms) => new Date(ms).toISOString()
 const getJson = async (url, label) => {
   const response = await fetch(url)
   if (!response.ok) {
-    throw new Error(`Failed to ${label}: ${response.status}`)
+    throw new Error(`無法${label}：${response.status}`)
   }
   return response.json()
 }
 
 export const fetchHistoryRange = (apiBaseUrl, dataId) =>
-  getJson(`${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/range`, 'load history range')
+  getJson(`${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/range`, '載入歷史時間範圍')
 
 export const fetchHistoryFrames = (apiBaseUrl, dataId) =>
-  getJson(`${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/frames`, 'load history frames')
+  getJson(`${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/frames`, '載入歷史影格')
 
 export const fetchHistoryAt = (apiBaseUrl, dataId, ms) =>
   getJson(
     `${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/at?t=${encodeURIComponent(toIso(ms))}`,
-    'load history frame'
+    '載入歷史影格'
   )
 
 export const fetchHistoryTrack = (apiBaseUrl, dataId, fromMs, toMs) => {
@@ -27,7 +27,7 @@ export const fetchHistoryTrack = (apiBaseUrl, dataId, fromMs, toMs) => {
   const query = params.toString()
   return getJson(
     `${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/track${query ? `?${query}` : ''}`,
-    'load history tracks'
+    '載入歷史軌跡'
   )
 }
 
@@ -55,7 +55,7 @@ export const streamHistoryTrack = async (apiBaseUrl, dataId, fromMs, toMs, { onP
 
   const response = await fetch(url, { signal, headers: { Accept: 'text/event-stream' } })
   if (!response.ok || !response.body) {
-    throw new Error(`Failed to stream history tracks: ${response.status}`)
+    throw new Error(`串流歷史軌跡失敗：${response.status}`)
   }
 
   const reader = response.body.getReader()
@@ -76,11 +76,11 @@ export const streamHistoryTrack = async (apiBaseUrl, dataId, fromMs, toMs, { onP
       const payload = JSON.parse(data)
       if (event === 'progress') onProgress?.(payload)
       else if (event === 'result') result = payload
-      else if (event === 'error') streamError = new Error(payload.message || 'stream error')
+      else if (event === 'error') streamError = new Error(payload.message || '串流錯誤')
     }
   }
 
   if (streamError) throw streamError
-  if (!result) throw new Error('Track stream ended without a result')
+  if (!result) throw new Error('軌跡串流結束但沒有回傳結果')
   return result
 }

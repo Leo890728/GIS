@@ -47,8 +47,8 @@ const dataLayerItems = computed(() =>
   }))
 )
 const modeMeta = {
-  points: { label: 'Points', icon: LocateFixed },
-  heatmap: { label: 'Heatmap', icon: Flame }
+  points: { label: '點位', icon: LocateFixed },
+  heatmap: { label: '熱區圖', icon: Flame }
 }
 
 const summary = computed(() => props.dataAggregate?.summary || { count: 0 })
@@ -56,8 +56,8 @@ const groupEntries = computed(() => Object.entries(summary.value.groups || {}).s
 const aggregateConfig = computed(() => props.dataAggregate?.config || {})
 const sumField = computed(() => aggregateConfig.value.sumField || '')
 const avgField = computed(() => aggregateConfig.value.avgField || '')
-const sumLabel = computed(() => aggregateConfig.value.sumLabel || 'Sum')
-const avgLabel = computed(() => aggregateConfig.value.avgLabel || 'Average')
+const sumLabel = computed(() => aggregateConfig.value.sumLabel || '總和')
+const avgLabel = computed(() => aggregateConfig.value.avgLabel || '平均')
 const sumDigits = computed(() => Number.isFinite(Number(aggregateConfig.value.sumDigits)) ? Number(aggregateConfig.value.sumDigits) : 1)
 const avgDigits = computed(() => Number.isFinite(Number(aggregateConfig.value.avgDigits)) ? Number(aggregateConfig.value.avgDigits) : 1)
 const sumValue = computed(() =>
@@ -89,7 +89,7 @@ const formatRemaining = (remainingSeconds) => {
 const getCountdownText = (layerKey) => {
   const runtime = getRuntime(layerKey)
   if (!runtime?.isDynamic) return ''
-  if (runtime.isFetching) return 'Updating...'
+  if (runtime.isFetching) return '更新中...'
   if (!runtime.nextRefreshAt) return '--:--'
   const diffSeconds = Math.ceil((runtime.nextRefreshAt - nowMs.value) / 1000)
   return formatRemaining(diffSeconds)
@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="data-panel">
     <div class="panel-title-row">
-      <h3>Data Layers</h3>
+      <h3>資料圖層</h3>
     </div>
     <button
       class="range-filter-btn"
@@ -135,9 +135,9 @@ onBeforeUnmount(() => {
       :class="{ active: props.rangePointFilterEnabled }"
       @click="emit('set-range-point-filter-enabled', !props.rangePointFilterEnabled)"
     >
-      只顯示已選擇 range 內資料點
+      只顯示已選範圍內資料點
     </button>
-    <p v-if="showRangeFilterHint" class="data-status hint">已啟用範圍過濾，請先在 Ranges 選擇範圍。</p>
+    <p v-if="showRangeFilterHint" class="data-status hint">已啟用範圍過濾，請先在「範圍」選擇範圍。</p>
 
     <article v-for="layer in dataLayerItems" :key="layer.key" class="region-card" :class="{ expanded: isExpanded(layer.key) }">
       <div class="card-head">
@@ -171,12 +171,12 @@ onBeforeUnmount(() => {
         <div class="head-actions">
           <div v-if="isDynamicLayer(layer.key)" class="live-badge">
             <span class="live-dot"></span>
-            <span>LIVE</span>
+            <span>即時</span>
           </div>
           <button
             class="collapse-btn"
             type="button"
-            :aria-label="isExpanded(layer.key) ? 'Collapse data item' : 'Expand data item'"
+            :aria-label="isExpanded(layer.key) ? '收合資料項目' : '展開資料項目'"
             :aria-expanded="isExpanded(layer.key)"
             @click.stop="toggleExpanded(layer.key)"
           >
@@ -201,7 +201,7 @@ onBeforeUnmount(() => {
 
         <div v-if="isAggregateLayer(layer.key)" class="metric-list">
           <div class="summary-row">
-            <span class="summary-label">Count</span>
+            <span class="summary-label">筆數</span>
             <strong>{{ summary.count || 0 }}</strong>
           </div>
           <div class="summary-row">
@@ -213,7 +213,7 @@ onBeforeUnmount(() => {
             <strong>{{ avgValue }}</strong>
           </div>
         </div>
-        <p v-if="isAggregateLayer(layer.key) && props.dataAggregate.loading" class="data-status">Loading aggregate...</p>
+        <p v-if="isAggregateLayer(layer.key) && props.dataAggregate.loading" class="data-status">載入統計資料中...</p>
         <p v-else-if="isAggregateLayer(layer.key) && props.dataAggregate.error" class="data-status error">{{ props.dataAggregate.error }}</p>
 
         <div v-if="isAggregateLayer(layer.key) && groupEntries.length" class="metric-list compact">
@@ -226,18 +226,18 @@ onBeforeUnmount(() => {
         <template v-if="shouldShowCountdown(layer.key)">
           <div class="content-divider"></div>
           <div class="footer-row">
-            <span class="countdown-text">Next refresh {{ getCountdownText(layer.key) }}</span>
+            <span class="countdown-text">下次更新 {{ getCountdownText(layer.key) }}</span>
             <div class="footer-actions">
               <button
                 class="inline-refresh-btn"
                 type="button"
-                aria-label="Refresh this data layer"
+                aria-label="重新整理此資料圖層"
                 :disabled="getRuntime(layer.key)?.isFetching"
                 @click.stop="emit('refresh-data-layer', layer.key)"
               >
                 <RefreshCw :size="12" />
               </button>
-              <button class="inline-refresh-btn" type="button" aria-label="Data settings">
+              <button class="inline-refresh-btn" type="button" aria-label="資料設定">
                 <Settings :size="12" />
               </button>
             </div>

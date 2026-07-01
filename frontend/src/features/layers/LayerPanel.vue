@@ -12,9 +12,9 @@ const props = defineProps({
 const emit = defineEmits(['toggle-layer', 'update-layer-style'])
 
 const layerDetailMap = {
-  county: 'County Boundary',
-  township: 'Township Boundary',
-  village: 'Village Boundary',
+  county: '縣市界線',
+  township: '鄉鎮市區界線',
+  village: '村里界線',
   stat_zone: '最小統計區',
   stat_zone_1: '一級發布區',
   stat_zone_2: '二級發布區'
@@ -49,8 +49,8 @@ const handleWidthInput = (key, event) => {
 <template>
   <section class="layers-panel">
     <div class="panel-title-row">
-      <h3>Boundary</h3>
-      <span class="count-badge">{{ activeLayerCount }} active</span>
+      <h3>邊界</h3>
+      <span class="count-badge">{{ activeLayerCount }} 啟用</span>
     </div>
 
     <article v-for="layer in layerItems" :key="layer.key" class="region-card expanded">
@@ -65,7 +65,7 @@ const handleWidthInput = (key, event) => {
       </button>
       <div class="layer-style-controls">
         <label class="style-field">
-          <span class="style-label">Color</span>
+          <span class="style-label">顏色</span>
           <input
             class="color-picker"
             type="color"
@@ -74,7 +74,7 @@ const handleWidthInput = (key, event) => {
           >
         </label>
         <label class="style-field width-field">
-          <span class="style-label">Width {{ layer.lineWidthScale.toFixed(1) }}x</span>
+          <span class="style-label">線寬 {{ layer.lineWidthScale.toFixed(1) }}x</span>
           <input
             class="width-slider"
             type="range"

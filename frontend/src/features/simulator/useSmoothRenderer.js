@@ -80,7 +80,7 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     } catch (error) {
       if (error?.name === 'AbortError' || controller.signal.aborted) return
       console.error(error)
-      state.error = 'Failed to load smooth tracks.'
+      state.error = '載入道路平滑軌跡失敗。'
     } finally {
       if (smoothAbort === controller) smoothAbort = null
       // Once this is the abandoned-latest load (no newer load replaced it),

@@ -16,13 +16,36 @@ const open = ref(true)
 const selected = computed(() => props.simulatorState.selected)
 const hasTrack = computed(() => !!props.simulatorState.trackGeoJson)
 const isFollowing = computed(() => !!props.simulatorState.autoFollow)
+const propertyLabelMap = {
+  car_licence: '車號',
+  car_no: '車號',
+  cartype: '車種',
+  dt: '時間',
+  caption: '位置',
+  status: '狀態',
+  direct: '方向',
+  OverSpeedText: '是否超速',
+  SpeedBand: '速度級距',
+  CODEBASE: '統計區代碼',
+  VILLAGE_CODE: '村里代碼',
+  P_CNT: '人口數',
+  icnrtname: '焚化廠名稱',
+  budadd: '地址',
+  locaepb: '主管環保局',
+  oprtdept: '操作單位',
+  weptype: '營運型態',
+  icnrtnum: '爐數',
+  dsnprcqt: '設計處理量',
+  dsneleqt: '發電機組裝置容量',
+  dsnhv: '設計熱值'
+}
 
 // Show the clicked entity's data fields, hiding internal/style helper keys.
 const selectedRows = computed(() => {
   const entries = Object.entries(selected.value?.properties ?? {})
   return entries
     .filter(([key, value]) => !key.startsWith('__') && value != null && value !== '')
-    .map(([key, value]) => ({ key, value: String(value) }))
+    .map(([key, value]) => ({ key, label: propertyLabelMap[key] || key, value: String(value) }))
 })
 
 const fmt = (ms) => {
@@ -48,9 +71,9 @@ const fmtShort = (ms) => {
 const segments = computed(() => props.simulatorState.segments ?? [])
 const sessionLabel = computed(() => {
   const index = props.simulatorState.selectedSegmentIndex
-  if (index === -1 || !segments.value.length) return 'All sessions'
+  if (index === -1 || !segments.value.length) return '全部區段'
   const seg = segments.value[index]
-  return seg ? `${fmtShort(seg.from)} – ${fmtShort(seg.to)}` : 'All sessions'
+  return seg ? `${fmtShort(seg.from)} – ${fmtShort(seg.to)}` : '全部區段'
 })
 
 const smoothPct = computed(() => {
@@ -64,7 +87,7 @@ const smoothPct = computed(() => {
     <button
       class="drawer-handle"
       type="button"
-      :aria-label="open ? 'Collapse analytics' : 'Expand analytics'"
+      :aria-label="open ? '收合分析面板' : '展開分析面板'"
       :aria-expanded="open"
       @click="open = !open"
     >
@@ -75,23 +98,23 @@ const smoothPct = computed(() => {
     <div v-if="open" class="drawer-body">
       <header class="drawer-head">
         <BarChart3 :size="15" />
-        <h3>Analytics</h3>
+        <h3>分析</h3>
       </header>
 
       <section v-if="selected" class="card selected">
         <div class="selected-head">
-          <p class="card-title">Selected point</p>
-          <button class="icon-btn" type="button" aria-label="Clear selection" @click="emit('clear-selection')">
+          <p class="card-title">已選點位</p>
+          <button class="icon-btn" type="button" aria-label="清除選取" @click="emit('clear-selection')">
             <X :size="13" />
           </button>
         </div>
         <div v-if="selectedRows.length" class="selected-props">
           <div v-for="row in selectedRows" :key="row.key" class="stat-row">
-            <span class="stat-label">{{ row.key }}</span>
+            <span class="stat-label">{{ row.label }}</span>
             <span class="stat-value prop">{{ row.value }}</span>
           </div>
         </div>
-        <p v-else class="selected-empty">No attributes on this point.</p>
+        <p v-else class="selected-empty">此點位沒有屬性。</p>
 
         <div class="selected-actions">
           <button
@@ -102,61 +125,61 @@ const smoothPct = computed(() => {
             @click="emit('toggle-track')"
           >
             <Route :size="13" />
-            <span v-if="simulatorState.trackLoading">Building…</span>
-            <span v-else>{{ hasTrack ? 'Hide trajectory' : 'Draw trajectory' }}</span>
+            <span v-if="simulatorState.trackLoading">建立中...</span>
+            <span v-else>{{ hasTrack ? '隱藏軌跡' : '繪製軌跡' }}</span>
           </button>
           <button
             class="follow-btn"
             :class="{ active: isFollowing }"
             type="button"
             :aria-pressed="isFollowing"
-            :title="isFollowing ? 'Stop following' : 'Follow this point'"
+            :title="isFollowing ? '停止跟隨' : '跟隨此點位'"
             @click="emit('toggle-follow')"
           >
             <LocateFixed :size="13" />
-            <span>{{ isFollowing ? 'Following' : 'Follow' }}</span>
+            <span>{{ isFollowing ? '跟隨中' : '跟隨' }}</span>
           </button>
         </div>
         <p v-if="simulatorState.trackError" class="selected-error">{{ simulatorState.trackError }}</p>
       </section>
 
       <section class="card">
-        <p class="card-title">This frame</p>
+        <p class="card-title">目前影格</p>
         <div class="stat-row">
-          <span class="stat-label">Vehicles</span>
+          <span class="stat-label">車輛</span>
           <span class="stat-value tnum">{{ simulatorState.featureCount ?? 0 }}</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Captures</span>
+          <span class="stat-label">擷取紀錄</span>
           <span class="stat-value tnum">{{ simulatorState.count ?? 0 }}</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Time</span>
+          <span class="stat-label">時間</span>
           <span class="stat-value tnum">{{ fmt(simulatorState.currentTime) }}</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Session</span>
+          <span class="stat-label">區段</span>
           <span class="stat-value session">{{ sessionLabel }}</span>
         </div>
       </section>
 
       <section class="card">
-        <p class="card-title">Playback</p>
+        <p class="card-title">播放</p>
         <div class="stat-row">
-          <span class="stat-label">Mode</span>
+          <span class="stat-label">模式</span>
           <span class="stat-value" :class="{ live: simulatorState.mode === 'live' }">
-            {{ simulatorState.mode === 'live' ? '● LIVE' : 'History' }}
+            {{ simulatorState.mode === 'live' ? '● 即時' : '歷史' }}
           </span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Speed</span>
+          <span class="stat-label">速度</span>
           <span class="stat-value tnum">{{ simulatorState.speed }}×</span>
         </div>
         <div class="stat-row">
-          <span class="stat-label">Road smoothing</span>
+          <span class="stat-label">道路平滑化</span>
           <span class="stat-value">
             <template v-if="simulatorState.smoothing">{{ smoothPct }}%</template>
-            <template v-else>{{ simulatorState.smooth ? 'on' : 'off' }}</template>
+            <template v-else>{{ simulatorState.smooth ? '開' : '關' }}</template>
           </span>
         </div>
       </section>

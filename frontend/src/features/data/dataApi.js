@@ -10,7 +10,7 @@ export const fetchDataPoints = async (apiBaseUrl, payload = {}, endpoint = '/dat
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to query data points: ${response.status}`)
+    throw new Error(`資料點查詢失敗：${response.status}`)
   }
 
   return response.json()
@@ -26,7 +26,7 @@ export const fetchDataAggregate = async (apiBaseUrl, payload = {}, endpoint = '/
   })
 
   if (!response.ok) {
-    throw new Error(`Failed to aggregate data points: ${response.status}`)
+    throw new Error(`資料點統計失敗：${response.status}`)
   }
 
   return response.json()

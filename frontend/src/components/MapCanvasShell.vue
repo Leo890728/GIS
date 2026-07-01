@@ -111,22 +111,30 @@ const routeLayerVisibilityRef = toRef(props, 'routeLayerVisibility')
 
 const orderedLayerEntries = computed(() => Object.entries(props.layerState))
 const orderedDataLayerEntries = computed(() => Object.entries(props.dataLayerState))
+const routeTypeLabels = {
+  start: '起點',
+  end: '終點',
+  pickup: '收運點',
+  disposal: '處理場',
+  dropped: '未排入'
+}
+const formatRouteType = (value) => routeTypeLabels[value] || value
 const routeLegendItems = computed(() => [
   {
     key: 'line',
-    label: 'Route Line',
+    label: '路線',
     color: '#ffd166',
     active: props.routeLayerVisibility?.line !== false
   },
   {
     key: 'stops',
-    label: 'Route Stops',
+    label: '停靠點',
     color: '#34d399',
     active: props.routeLayerVisibility?.stops !== false
   },
   {
     key: 'anchors',
-    label: 'Depot Anchors',
+    label: '起訖點',
     color: '#22d3ee',
     active: props.routeLayerVisibility?.anchors !== false
   }
@@ -274,20 +282,20 @@ const buildRouteTooltipHtml = (properties) => {
     )
   }
 
-  appendRow('Vehicle', properties.vehicleId)
-  appendRow('Stop', properties.stopIndex != null && Number(properties.stopIndex) >= 0 ? Number(properties.stopIndex) + 1 : '-')
-  appendRow('Type', properties.type)
-  appendRow('Name', properties.name)
-  appendRow('Load (kg)', properties.loadKg)
-  appendRow('Member Count', properties.memberCount)
+  appendRow('車輛', properties.vehicleId)
+  appendRow('站序', properties.stopIndex != null && Number(properties.stopIndex) >= 0 ? Number(properties.stopIndex) + 1 : '-')
+  appendRow('類型', formatRouteType(properties.type))
+  appendRow('名稱', properties.name)
+  appendRow('載重 (kg)', properties.loadKg)
+  appendRow('合併點數', properties.memberCount)
 
   const legDistance = properties.legFromPrevDistanceM
   const legDuration = properties.legFromPrevDurationS
-  appendRow('From Prev (m)', legDistance)
-  appendRow('From Prev (s)', legDuration)
+  appendRow('前段距離 (m)', legDistance)
+  appendRow('前段時間 (s)', legDuration)
 
   if (!rows.length) return ''
-  const titleValue = properties.name || properties.type || 'Route Stop'
+  const titleValue = properties.name || formatRouteType(properties.type) || '路線節點'
   return `<div class="hover-card"><div class="hover-title">${escapeHtml(titleValue)}</div>${rows.join('')}</div>`
 }
 
@@ -465,12 +473,12 @@ const createMap = () => {
   })
   map.value.on('idle', refreshLoading)
   map.value.on('error', (event) => {
-    const message = event?.error?.message || 'Map rendering error'
+    const message = event?.error?.message || '地圖繪製錯誤'
     if (message.includes('404')) {
       return
     }
     if (message.includes('Failed to fetch')) {
-      status.value.error = 'Unable to load map tiles. Check the tile server URL.'
+      status.value.error = '無法載入地圖圖磚，請檢查圖磚伺服器網址。'
       return
     }
     status.value.error = message
@@ -702,7 +710,7 @@ onBeforeUnmount(() => {
     <div ref="mapEl" class="map-canvas"></div>
 
     <div class="legend-card">
-      <p class="legend-title">Boundary</p>
+      <p class="legend-title">邊界</p>
       <button
         v-for="[key, row] in orderedLayerEntries"
         :key="key"
@@ -716,7 +724,7 @@ onBeforeUnmount(() => {
       </button>
 
       <template v-if="orderedDataLayerEntries.length">
-        <p class="legend-title data-title">Data Layers</p>
+        <p class="legend-title data-title">資料圖層</p>
         <button
           v-for="[key, row] in orderedDataLayerEntries"
           :key="key"
@@ -731,7 +739,7 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-if="routeLegendItems.length">
-        <p class="legend-title data-title">Route</p>
+        <p class="legend-title data-title">路線</p>
         <button
           v-for="item in routeLegendItems"
           :key="item.key"
@@ -745,7 +753,7 @@ onBeforeUnmount(() => {
         </button>
 
         <template v-if="routeVehicleLegendItems.length">
-          <p class="legend-title vehicle-title">Vehicles</p>
+          <p class="legend-title vehicle-title">車輛</p>
           <button
             v-for="item in routeVehicleLegendItems"
             :key="item.key"
@@ -762,7 +770,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="status.loading || status.error" class="map-status-card" :class="{ error: status.error }">
-      <p v-if="status.loading" class="status-row">Loading map tiles...</p>
+      <p v-if="status.loading" class="status-row">載入地圖圖磚中...</p>
       <p v-else class="status-row">{{ status.error }}</p>
     </div>
 

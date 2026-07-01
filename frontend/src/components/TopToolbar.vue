@@ -4,13 +4,13 @@ import { Minus, Plus } from 'lucide-vue-next'
 
 <template>
   <header class="top-toolbar">
-    <h1>GIS Map Editor</h1>
+    <h1>GIS 地圖編輯器</h1>
     <div class="zoom-controls">
-      <button type="button" aria-label="Zoom out">
+      <button type="button" aria-label="縮小">
         <Minus :size="16" />
       </button>
       <span>100%</span>
-      <button type="button" aria-label="Zoom in">
+      <button type="button" aria-label="放大">
         <Plus :size="16" />
       </button>
     </div>

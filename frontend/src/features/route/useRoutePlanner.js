@@ -28,7 +28,7 @@ const parseJsonObject = (value, fieldName) => {
     }
     return parsed
   } catch {
-    throw new Error(`${fieldName} must be valid JSON object`)
+    throw new Error(`${fieldName}必須是有效的 JSON 物件`)
   }
 }
 
@@ -159,14 +159,14 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: routeForm.value.startCoord },
-        properties: { type: 'start', name: 'Start Depot' }
+        properties: { type: 'start', name: '起點場站' }
       })
     }
     if (Array.isArray(routeForm.value.endCoord)) {
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: routeForm.value.endCoord },
-        properties: { type: 'end', name: 'End Depot' }
+        properties: { type: 'end', name: '終點場站' }
       })
     }
     return { type: 'FeatureCollection', features }
@@ -242,11 +242,11 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
     }
     try {
       if (!Array.isArray(routeForm.value.startCoord) || !Array.isArray(routeForm.value.endCoord)) {
-        throw new Error('Please select both start and end depot points on the map')
+        throw new Error('請在地圖上選取起點與終點場站')
       }
 
-      const nodeFilters = parseJsonObject(routeForm.value.nodeFiltersText, 'Node filters')
-      const disposalFilters = parseJsonObject(routeForm.value.disposalFiltersText, 'Disposal filters')
+      const nodeFilters = parseJsonObject(routeForm.value.nodeFiltersText, '節點篩選條件')
+      const disposalFilters = parseJsonObject(routeForm.value.disposalFiltersText, '處理場篩選條件')
       const selectedRangeRequest = selectedRangeRequestRef?.value || {}
       const rangePayload = {
         countyCodes: selectedRangeRequest.countyCodes || [],
@@ -325,7 +325,7 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
       routeRuntime.value = {
         ...routeRuntime.value,
         loading: false,
-        error: error?.message || 'Failed to solve route'
+        error: error?.message || '路線求解失敗'
       }
       clearResult()
     }

@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 export const createBasemapState = () => ({
   osm: {
     label: 'OpenStreetMap',
-    detail: 'Street map',
+    detail: '街道地圖',
     tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
     tileSize: 256,
     attribution: '&copy; OpenStreetMap contributors',
@@ -11,7 +11,7 @@ export const createBasemapState = () => ({
   },
   cartoVoyager: {
     label: 'Carto Voyager',
-    detail: 'Colorful canvas',
+    detail: '彩色底圖',
     tiles: ['https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'],
     tileSize: 256,
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
@@ -19,7 +19,7 @@ export const createBasemapState = () => ({
   },
   cartoLight: {
     label: 'Carto Light',
-    detail: 'Light canvas',
+    detail: '明亮底圖',
     tiles: ['https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
     tileSize: 256,
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
@@ -27,7 +27,7 @@ export const createBasemapState = () => ({
   },
   cartoDark: {
     label: 'Carto Dark',
-    detail: 'Dark canvas',
+    detail: '深色底圖',
     tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'],
     tileSize: 256,
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
@@ -35,7 +35,7 @@ export const createBasemapState = () => ({
   },
   esriSatellite: {
     label: 'Esri Satellite',
-    detail: 'World imagery',
+    detail: '全球衛星影像',
     tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
     tileSize: 256,
     attribution: 'Source: Esri, Maxar, Earthstar Geographics',

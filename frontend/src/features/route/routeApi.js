@@ -9,7 +9,7 @@ export const solveGarbageRoute = async (apiBaseUrl, payload) => {
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(`Route solve failed (${response.status}): ${text}`)
+    throw new Error(`路線求解失敗 (${response.status})：${text}`)
   }
 
   return response.json()

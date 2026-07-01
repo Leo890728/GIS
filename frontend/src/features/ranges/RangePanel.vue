@@ -28,8 +28,8 @@ const selectedRangeLeafCount = computed(() => props.selectedRangeIds.length)
 <template>
   <section class="ranges-panel">
     <div class="panel-title-row">
-      <h3>Ranges</h3>
-      <span class="count-badge">{{ selectedRangeLeafCount }} / {{ totalRangeLeafCount }} selected</span>
+      <h3>範圍</h3>
+      <span class="count-badge">{{ selectedRangeLeafCount }} / {{ totalRangeLeafCount }} 已選取</span>
     </div>
 
     <article class="region-card expanded">
@@ -38,8 +38,8 @@ const selectedRangeLeafCount = computed(() => props.selectedRangeIds.length)
           <Minus :size="10" />
         </div>
         <div class="region-label-wrap">
-          <p class="region-name">All Ranges</p>
-          <p class="region-meta">{{ selectedRangeLeafCount }}/{{ totalRangeLeafCount }} selected</p>
+          <p class="region-name">全部範圍</p>
+          <p class="region-meta">{{ selectedRangeLeafCount }}/{{ totalRangeLeafCount }} 已選取</p>
         </div>
         <ChevronDown class="caret" :size="14" />
       </header>

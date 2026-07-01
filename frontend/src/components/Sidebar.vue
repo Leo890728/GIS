@@ -127,12 +127,12 @@ const emit = defineEmits([
 const activeMode = ref('ranges')
 
 const modeLabels = {
-  basemap: 'Basemap',
-  layers: 'Boundary',
-  ranges: 'Ranges',
-  route: 'Route',
-  data: 'Data',
-  simulator: 'Simulator'
+  basemap: '底圖',
+  layers: '邊界',
+  ranges: '範圍',
+  route: '路線',
+  data: '資料',
+  simulator: '模擬器'
 }
 
 const openMode = (mode) => {
@@ -144,16 +144,16 @@ const openMode = (mode) => {
 
 const drawingTools = [
   [
-    { key: 'draw-box', label: 'Draw Box', icon: MousePointer2, active: false },
-    { key: 'edit', label: 'Edit', icon: Hand, active: false }
+    { key: 'draw-box', label: '框選', icon: MousePointer2, active: false },
+    { key: 'edit', label: '編輯', icon: Hand, active: false }
   ],
   [
-    { key: 'lasso', label: 'Lasso', icon: Slash, active: false },
-    { key: 'polygon', label: 'Polygon', icon: Pentagon, active: true }
+    { key: 'lasso', label: '套索', icon: Slash, active: false },
+    { key: 'polygon', label: '多邊形', icon: Pentagon, active: true }
   ],
   [
-    { key: 'rect-area', label: 'Rect Area', icon: Square, active: false },
-    { key: 'circle-area', label: 'Circle Area', icon: Circle, active: false }
+    { key: 'rect-area', label: '矩形範圍', icon: Square, active: false },
+    { key: 'circle-area', label: '圓形範圍', icon: Circle, active: false }
   ]
 ]
 </script>
@@ -165,7 +165,7 @@ const drawingTools = [
       <button
         class="icon-button"
         type="button"
-        :aria-label="props.collapsed ? 'Expand panel' : 'Collapse panel'"
+        :aria-label="props.collapsed ? '展開面板' : '收合面板'"
         @click="emit('toggle-collapse')"
       >
         <PanelLeftOpen v-if="props.collapsed" :size="16" />
@@ -185,7 +185,7 @@ const drawingTools = [
           @click="openMode('basemap')"
         >
           <Circle :size="14" />
-          <span>Basemap</span>
+          <span>底圖</span>
         </button>
         <button
           class="compact-mode-btn"
@@ -195,7 +195,7 @@ const drawingTools = [
           @click="openMode('layers')"
         >
           <Square :size="14" />
-          <span>Boundary</span>
+          <span>邊界</span>
         </button>
         <button
           class="compact-mode-btn"
@@ -205,7 +205,7 @@ const drawingTools = [
           @click="openMode('ranges')"
         >
           <Pentagon :size="14" />
-          <span>Ranges</span>
+          <span>範圍</span>
         </button>
         <button
           class="compact-mode-btn"
@@ -215,7 +215,7 @@ const drawingTools = [
           @click="openMode('data')"
         >
           <Database :size="14" />
-          <span>Data</span>
+          <span>資料</span>
         </button>
         <button
           class="compact-mode-btn"
@@ -225,7 +225,7 @@ const drawingTools = [
           @click="openMode('route')"
         >
           <Navigation :size="14" />
-          <span>Route</span>
+          <span>路線</span>
         </button>
         <button
           class="compact-mode-btn"
@@ -235,7 +235,7 @@ const drawingTools = [
           @click="openMode('simulator')"
         >
           <History :size="14" />
-          <span>Simulator</span>
+          <span>模擬器</span>
         </button>
       </div>
     </div>
@@ -249,7 +249,7 @@ const drawingTools = [
           :aria-pressed="activeMode === 'basemap'"
           @click="activeMode = 'basemap'"
         >
-          Basemap
+          底圖
         </button>
         <button
           class="mode-btn"
@@ -258,7 +258,7 @@ const drawingTools = [
           :aria-pressed="activeMode === 'layers'"
           @click="activeMode = 'layers'"
         >
-          Boundary
+          邊界
         </button>
         <button
           class="mode-btn"
@@ -267,7 +267,7 @@ const drawingTools = [
           :aria-pressed="activeMode === 'ranges'"
           @click="activeMode = 'ranges'"
         >
-          Ranges
+          範圍
         </button>
         <button
           class="mode-btn"
@@ -276,7 +276,7 @@ const drawingTools = [
           :aria-pressed="activeMode === 'route'"
           @click="activeMode = 'route'"
         >
-          Route
+          路線
         </button>
         <button
           class="mode-btn"
@@ -285,7 +285,7 @@ const drawingTools = [
           :aria-pressed="activeMode === 'data'"
           @click="activeMode = 'data'"
         >
-          Data
+          資料
         </button>
         <button
           class="mode-btn"
@@ -294,7 +294,7 @@ const drawingTools = [
           :aria-pressed="activeMode === 'simulator'"
           @click="activeMode = 'simulator'"
         >
-          Simulator
+          模擬器
         </button>
       </div>
 
@@ -364,7 +364,7 @@ const drawingTools = [
       />
 
       <section v-if="activeMode === 'ranges'" class="tools-panel">
-        <h3>Range Drawing Tools</h3>
+        <h3>範圍繪製工具</h3>
         <div class="tools-grid">
           <div v-for="row in drawingTools" :key="row[0].key" class="tool-row">
             <button

@@ -110,7 +110,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
     aggregate: {
       metrics: ['count', 'avg:status'],
       groupBy: 'car_no',
-      summary: { sumField: '', sumLabel: 'Sum', avgField: 'status', avgLabel: 'Avg status' }
+      summary: { sumField: '', sumLabel: '總和', avgField: 'status', avgLabel: '平均狀態' }
     },
     dynamic: { enabled: true, pollIntervalMs: 15000 },
     icons: [
@@ -137,11 +137,11 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       enabled: true,
       titleTemplate: '{car_licence}',
       items: [
-        { label: 'Car', field: 'car_licence' },
-        { label: 'Time', field: 'dt', format: 'datetime' },
-        { label: 'Location', field: 'caption' },
-        { label: 'Status', field: 'status', format: 'number', digits: 0 },
-        { label: 'Direction', field: 'direct' }
+        { label: '車號', field: 'car_licence' },
+        { label: '時間', field: 'dt', format: 'datetime' },
+        { label: '位置', field: 'caption' },
+        { label: '狀態', field: 'status', format: 'number', digits: 0 },
+        { label: '方向', field: 'direct' }
       ]
     },
     style: {
@@ -193,8 +193,8 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
   },
 
   statZonePopulation: {
-    label: 'Stat Zone Population',
-    detail: 'stat_zone (P_CNT)',
+    label: '統計區人口',
+    detail: '統計區 (P_CNT)',
     dataId: 'stat_zone_population_points',
     sourceId: 'data-stat-zone-population-source',
     layerId: 'data-stat-zone-population',
@@ -208,7 +208,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       endpoint: '/data/admin/aggregate',
       useRangeRequest: true,
       metrics: ['count', 'sum:P_CNT'],
-      summary: { sumField: 'P_CNT', sumLabel: 'Population', avgField: '', avgLabel: '', sumDigits: 0 },
+      summary: { sumField: 'P_CNT', sumLabel: '人口數', avgField: '', avgLabel: '', sumDigits: 0 },
       priority: 100
     },
     styleHandler: { handler: statZonePopulationStyle },
@@ -216,9 +216,9 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       enabled: true,
       titleTemplate: '{name_zh}',
       items: [
-        { label: 'Stat Zone', field: 'CODEBASE' },
-        { label: 'Village', field: 'VILLAGE_CODE' },
-        { label: 'Population', field: 'P_CNT', format: 'number', digits: 0 }
+        { label: '統計區代碼', field: 'CODEBASE' },
+        { label: '村里代碼', field: 'VILLAGE_CODE' },
+        { label: '人口數', field: 'P_CNT', format: 'number', digits: 0 }
       ]
     },
     defaultMode: 'heatmap',

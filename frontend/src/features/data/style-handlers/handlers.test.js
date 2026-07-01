@@ -24,7 +24,7 @@ describe('taichungGarbageVehicle', () => {
     expect(run({ status: 40 }).style.color).toBe('#medium')
     const fast = run({ status: 60 })
     expect(fast.style.color).toBe('#fast')
-    expect(fast.derivedFields.SpeedBand).toBe('high')
+    expect(fast.derivedFields.SpeedBand).toBe('高速')
   })
 
   it('resolves iconId via directionalIcons into style (not derivedFields)', () => {

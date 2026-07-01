@@ -42,7 +42,7 @@ const segments = computed(() => props.simulatorState.segments ?? [])
 const sessionOrder = computed(() => [-1, ...segments.value.map((_, i) => i)])
 const sessionLabel = computed(() => {
   const index = props.simulatorState.selectedSegmentIndex
-  return index === -1 ? 'All' : `${index + 1}/${segments.value.length}`
+  return index === -1 ? '全部' : `${index + 1}/${segments.value.length}`
 })
 const stepSession = (direction) => {
   const order = sessionOrder.value
@@ -190,29 +190,29 @@ const onTrackKeydown = (event) => {
 <template>
   <div class="sim-bar">
     <div class="sim-bar-controls">
-      <button class="sim-bar-btn" type="button" aria-label="Previous frame" @click="emit('step', -1)">
+      <button class="sim-bar-btn" type="button" aria-label="上一格" @click="emit('step', -1)">
         <SkipBack :size="16" />
       </button>
       <button
         class="sim-bar-btn play"
         type="button"
-        :aria-label="simulatorState.playing ? 'Pause' : 'Play'"
+        :aria-label="simulatorState.playing ? '暫停' : '播放'"
         @click="emit('toggle-play')"
       >
         <Pause v-if="simulatorState.playing" :size="18" />
         <Play v-else :size="18" />
       </button>
-      <button class="sim-bar-btn" type="button" aria-label="Next frame" @click="emit('step', 1)">
+      <button class="sim-bar-btn" type="button" aria-label="下一格" @click="emit('step', 1)">
         <SkipForward :size="16" />
       </button>
     </div>
 
     <div v-if="segments.length > 1" class="sim-bar-session">
-      <button class="sim-bar-btn" type="button" aria-label="Previous session" @click="stepSession(-1)">
+      <button class="sim-bar-btn" type="button" aria-label="上一個錄製區段" @click="stepSession(-1)">
         <ChevronLeft :size="16" />
       </button>
-      <span class="sim-bar-session-label" title="Recording session">{{ sessionLabel }}</span>
-      <button class="sim-bar-btn" type="button" aria-label="Next session" @click="stepSession(1)">
+      <span class="sim-bar-session-label" title="錄製區段">{{ sessionLabel }}</span>
+      <button class="sim-bar-btn" type="button" aria-label="下一個錄製區段" @click="stepSession(1)">
         <ChevronRight :size="16" />
       </button>
     </div>
@@ -224,12 +224,12 @@ const onTrackKeydown = (event) => {
         class="sim-track"
         role="slider"
         tabindex="0"
-        aria-label="Playback timeline (scroll to zoom, shift-drag to pan)"
+        aria-label="播放時間軸（滾輪縮放，按住 Shift 鍵拖曳可平移）"
         :aria-valuemin="playFrom"
         :aria-valuemax="playTo"
         :aria-valuenow="simulatorState.currentTime ?? playTo"
         :aria-valuetext="fmt(simulatorState.currentTime)"
-        title="Scroll to zoom · Shift-drag to pan"
+        title="滾輪縮放 · 按住 Shift 鍵拖曳可平移"
         @pointerdown="onTrackPointerDown"
         @pointermove="onTrackPointerMove"
         @pointerup="onTrackPointerUp"
@@ -264,7 +264,7 @@ const onTrackKeydown = (event) => {
         :class="{ active: simulatorState.mode === 'live' }"
         type="button"
         :aria-pressed="simulatorState.mode === 'live'"
-        title="Live mode"
+        title="即時模式"
         @click="emit('toggle-live')"
       >
         <Radio :size="15" />
@@ -285,7 +285,7 @@ const onTrackKeydown = (event) => {
         class="sim-bar-smooth"
         :class="{ active: simulatorState.smooth, busy: simulatorState.smoothing }"
         type="button"
-        title="Road smoothing (OSRM)"
+        title="道路平滑化 (OSRM)"
         @click="emit('toggle-smooth')"
       >
         <span
@@ -299,7 +299,7 @@ const onTrackKeydown = (event) => {
         </span>
       </button>
       <span v-if="simulatorState.loading && !simulatorState.smoothing" class="sim-bar-loading">…</span>
-      <button class="sim-bar-exit" type="button" aria-label="Exit playback" @click="emit('stop')">
+      <button class="sim-bar-exit" type="button" aria-label="結束播放" @click="emit('stop')">
         <X :size="16" />
       </button>
     </div>

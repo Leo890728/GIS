@@ -48,41 +48,51 @@ const updateCheckbox = (key, event) => {
 const setPickMode = (mode) => {
   emit('set-pick-mode', mode)
 }
+
+const stopTypeLabels = {
+  start: '起點',
+  end: '終點',
+  pickup: '收運點',
+  disposal: '處理場',
+  dropped: '未排入'
+}
+
+const formatStopType = (value) => stopTypeLabels[value] || value
 </script>
 
 <template>
   <section class="route-panel">
     <div class="panel-title-row">
-      <h3>Route Planner</h3>
+      <h3>路線規劃</h3>
     </div>
-    <p class="route-hint">Selected ranges: {{ selectedRangeCount }}</p>
+    <p class="route-hint">已選範圍：{{ selectedRangeCount }}</p>
 
     <article class="route-card">
-      <label class="field-label" for="route-node-mode">Node Source</label>
+      <label class="field-label" for="route-node-mode">節點來源</label>
       <select
         id="route-node-mode"
         class="field-control"
         :value="routeForm.nodeSourceMode"
         @change="updateText('nodeSourceMode', $event)"
       >
-        <option value="preset">Preset</option>
-        <option value="dataset">Dataset</option>
+        <option value="preset">預設</option>
+        <option value="dataset">資料集</option>
       </select>
 
       <template v-if="routeForm.nodeSourceMode === 'preset'">
-        <label class="field-label" for="route-preset">Preset</label>
+        <label class="field-label" for="route-preset">預設資料</label>
         <select
           id="route-preset"
           class="field-control"
           :value="routeForm.preset"
           @change="updateText('preset', $event)"
         >
-          <option value="stat_zone_population_points">stat_zone_population_points</option>
+          <option value="stat_zone_population_points">統計區人口點位</option>
         </select>
       </template>
 
       <template v-else>
-        <label class="field-label" for="route-data-id">Dataset dataId</label>
+        <label class="field-label" for="route-data-id">資料集 ID</label>
         <input
           id="route-data-id"
           class="field-control"
@@ -94,7 +104,7 @@ const setPickMode = (mode) => {
 
       <div class="field-row">
         <div class="field-col">
-          <label class="field-label" for="route-demand-field">Demand Field</label>
+          <label class="field-label" for="route-demand-field">需求欄位</label>
           <input
             id="route-demand-field"
             class="field-control"
@@ -104,7 +114,7 @@ const setPickMode = (mode) => {
           />
         </div>
         <div class="field-col">
-          <label class="field-label" for="route-demand-mul">Multiplier (kg)</label>
+          <label class="field-label" for="route-demand-mul">換算倍率 (kg)</label>
           <input
             id="route-demand-mul"
             class="field-control"
@@ -119,7 +129,7 @@ const setPickMode = (mode) => {
 
       <div class="field-row">
         <div class="field-col">
-          <label class="field-label" for="route-vehicle-count">Vehicles</label>
+          <label class="field-label" for="route-vehicle-count">車輛數</label>
           <input
             id="route-vehicle-count"
             class="field-control"
@@ -131,7 +141,7 @@ const setPickMode = (mode) => {
           />
         </div>
         <div class="field-col">
-          <label class="field-label" for="route-capacity">Capacity (kg)</label>
+          <label class="field-label" for="route-capacity">容量 (kg)</label>
           <input
             id="route-capacity"
             class="field-control"
@@ -144,7 +154,7 @@ const setPickMode = (mode) => {
         </div>
       </div>
 
-      <label class="field-label" for="route-osrm-url">OSRM URL</label>
+      <label class="field-label" for="route-osrm-url">OSRM 服務 URL</label>
       <input
         id="route-osrm-url"
         class="field-control"
@@ -155,7 +165,7 @@ const setPickMode = (mode) => {
 
       <div class="field-row">
         <div class="field-col">
-          <label class="field-label" for="route-time-limit">Time Limit (sec)</label>
+          <label class="field-label" for="route-time-limit">求解時間上限 (秒)</label>
           <input
             id="route-time-limit"
             class="field-control"
@@ -167,7 +177,7 @@ const setPickMode = (mode) => {
           />
         </div>
         <div class="field-col">
-          <label class="field-label" for="route-limit">Node Limit</label>
+          <label class="field-label" for="route-limit">節點上限</label>
           <input
             id="route-limit"
             class="field-control"
@@ -186,12 +196,12 @@ const setPickMode = (mode) => {
           :checked="routeForm.aggregationEnabled"
           @change="updateCheckbox('aggregationEnabled', $event)"
         />
-        <span>Enable Pre-solve Aggregation</span>
+        <span>啟用求解前聚合</span>
       </label>
 
       <div class="field-row">
         <div class="field-col">
-          <label class="field-label" for="route-cell">Cell Meters</label>
+          <label class="field-label" for="route-cell">網格大小 (m)</label>
           <input
             id="route-cell"
             class="field-control"
@@ -203,7 +213,7 @@ const setPickMode = (mode) => {
           />
         </div>
         <div class="field-col">
-          <label class="field-label" for="route-threshold">Aggregate Threshold</label>
+          <label class="field-label" for="route-threshold">聚合門檻</label>
           <input
             id="route-threshold"
             class="field-control"
@@ -222,10 +232,10 @@ const setPickMode = (mode) => {
           :checked="routeForm.snapToRoadEnabled"
           @change="updateCheckbox('snapToRoadEnabled', $event)"
         />
-        <span>Snap Points to Road Before Aggregation</span>
+        <span>聚合前將點位貼齊道路</span>
       </label>
 
-      <label class="field-label" for="route-snap-distance">Snap Max Distance (m)</label>
+      <label class="field-label" for="route-snap-distance">貼齊道路最大距離 (m)</label>
       <input
         id="route-snap-distance"
         class="field-control"
@@ -236,7 +246,7 @@ const setPickMode = (mode) => {
         @input="updateNumber('snapToRoadMaxDistanceMeters', $event)"
       />
 
-      <label class="field-label" for="route-node-filters">Node Filters (JSON)</label>
+      <label class="field-label" for="route-node-filters">節點篩選條件 (JSON)</label>
       <textarea
         id="route-node-filters"
         class="field-control text-area"
@@ -245,7 +255,7 @@ const setPickMode = (mode) => {
         @input="updateText('nodeFiltersText', $event)"
       />
 
-      <label class="field-label" for="route-disposal-filters">Disposal Filters (JSON)</label>
+      <label class="field-label" for="route-disposal-filters">處理場篩選條件 (JSON)</label>
       <textarea
         id="route-disposal-filters"
         class="field-control text-area"
@@ -261,7 +271,7 @@ const setPickMode = (mode) => {
           :class="{ active: pickMode === 'start' }"
           @click="setPickMode(pickMode === 'start' ? '' : 'start')"
         >
-          Pick Start
+          選取起點
         </button>
         <button
           class="pick-btn"
@@ -269,51 +279,51 @@ const setPickMode = (mode) => {
           :class="{ active: pickMode === 'end' }"
           @click="setPickMode(pickMode === 'end' ? '' : 'end')"
         >
-          Pick End
+          選取終點
         </button>
       </div>
 
       <div class="coord-row">
-        <p>Start: {{ routeForm.startCoord ? routeForm.startCoord.join(', ') : '-' }}</p>
-        <p>End: {{ routeForm.endCoord ? routeForm.endCoord.join(', ') : '-' }}</p>
+        <p>起點：{{ routeForm.startCoord ? routeForm.startCoord.join(', ') : '-' }}</p>
+        <p>終點：{{ routeForm.endCoord ? routeForm.endCoord.join(', ') : '-' }}</p>
       </div>
 
       <div class="action-row">
         <button class="primary-btn" type="button" :disabled="routeRuntime.loading" @click="emit('solve-route')">
-          {{ routeRuntime.loading ? 'Solving...' : 'Solve Route' }}
+          {{ routeRuntime.loading ? '求解中...' : '求解路線' }}
         </button>
         <button class="secondary-btn" type="button" :disabled="routeRuntime.loading" @click="emit('clear-route')">
-          Clear
+          清除
         </button>
       </div>
 
       <p v-if="routeRuntime.error" class="status error">{{ routeRuntime.error }}</p>
-      <p v-else-if="routeRuntime.solvedAt" class="status">Solved successfully</p>
+      <p v-else-if="routeRuntime.solvedAt" class="status">求解完成</p>
     </article>
 
     <article v-if="routeRows.length" class="route-card">
-      <h4 class="sub-title">Summary</h4>
+      <h4 class="sub-title">摘要</h4>
       <div class="summary-grid">
-        <p>Total distance: {{ routeSummary.totalDistanceM || 0 }} m</p>
-        <p>Total duration: {{ routeSummary.totalDurationS || 0 }} s</p>
-        <p>Total demand: {{ routeSummary.totalDemandKg || 0 }} kg</p>
-        <p>Served demand: {{ routeSummary.servedDemandKg || 0 }} kg</p>
-        <p>Dropped demand: {{ routeSummary.droppedDemandKg || 0 }} kg</p>
-        <p>Vehicles used: {{ routeSummary.vehicleUsed || 0 }}</p>
+        <p>總距離：{{ routeSummary.totalDistanceM || 0 }} m</p>
+        <p>總時間：{{ routeSummary.totalDurationS || 0 }} s</p>
+        <p>總需求量：{{ routeSummary.totalDemandKg || 0 }} kg</p>
+        <p>已服務需求量：{{ routeSummary.servedDemandKg || 0 }} kg</p>
+        <p>未服務需求量：{{ routeSummary.droppedDemandKg || 0 }} kg</p>
+        <p>使用車輛：{{ routeSummary.vehicleUsed || 0 }}</p>
       </div>
 
-      <h4 class="sub-title">Route Stops</h4>
+      <h4 class="sub-title">路線停靠點</h4>
       <div v-for="route in routeRows" :key="route.vehicle_id" class="route-block">
         <p class="route-name">{{ route.vehicle_id }} / {{ route.distance_m }} m / {{ route.duration_s }} s</p>
         <ol class="stop-list">
           <li v-for="(stop, idx) in route.stops" :key="`${route.vehicle_id}-${idx}`" class="stop-row">
-            {{ idx + 1 }}. [{{ stop.type }}] {{ stop.name }} / load {{ stop.load_kg }} kg
+            {{ idx + 1 }}. [{{ formatStopType(stop.type) }}] {{ stop.name }} / 載重 {{ stop.load_kg }} kg
           </li>
         </ol>
       </div>
 
       <template v-if="droppedRows.length">
-        <h4 class="sub-title">Dropped Nodes</h4>
+        <h4 class="sub-title">未排入節點</h4>
         <ul class="stop-list">
           <li v-for="node in droppedRows" :key="node.id" class="stop-row">
             {{ node.name }} / {{ node.demandKg }} kg
