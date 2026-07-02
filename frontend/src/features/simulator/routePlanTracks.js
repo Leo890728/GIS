@@ -178,6 +178,32 @@ export const bearingToTruckIconSuffix = (bearing) => {
   return `o0${index + 1}`
 }
 
+// Heat points for the stop-heatmap view: one feature per pickup stop, weighted
+// by the garbage collected there (the load delta from the previous stop, since
+// route stops report cumulative load). `stopIndex` matches the stop layer so
+// served stops can be zeroed out during playback.
+export const buildRouteHeatGeoJson = (routeResult) => {
+  const features = []
+  for (const route of routeResult?.routes || []) {
+    let previousLoadKg = 0
+    for (const [stopIndex, stop] of (route?.stops || []).entries()) {
+      const loadKg = Number(stop?.load_kg) || 0
+      if (stop?.type === 'pickup' && Number.isFinite(stop?.lng) && Number.isFinite(stop?.lat)) {
+        const demandKg = Math.max(0, loadKg - previousLoadKg)
+        if (demandKg > 0) {
+          features.push({
+            type: 'Feature',
+            properties: { vehicleId: route.vehicle_id, stopIndex, demandKg },
+            geometry: { type: 'Point', coordinates: [stop.lng, stop.lat] }
+          })
+        }
+      }
+      previousLoadKg = loadKg
+    }
+  }
+  return { type: 'FeatureCollection', features }
+}
+
 /**
  * Build simulator tracks for every vehicle route in a solved VRP result.
  * All vehicles depart together at `baseMs`.

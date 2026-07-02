@@ -82,6 +82,10 @@ const props = defineProps({
     type: Object,
     default: () => ({ type: 'FeatureCollection', features: [] })
   },
+  routeSimHeatGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
   routeSimSelectedVehicle: {
     type: Object,
     default: null
@@ -109,6 +113,7 @@ const emit = defineEmits([
   'simulator-select-segment',
   'simulator-set-window',
   'simulator-toggle-live',
+  'simulator-toggle-route-heatmap',
   'simulator-toggle-follow',
   'simulator-select-feature',
   'simulator-toggle-track',
@@ -254,6 +259,7 @@ const enforceLayerOrder = () => {
     'route-line-layer',
     'route-sim-line-traveled-layer',
     'route-sim-line-remaining-layer',
+    'route-sim-heat-layer',
     'route-stop-layer',
     'route-stop-order-layer',
     'route-anchor-layer',
@@ -750,6 +756,25 @@ watch(
 const ROUTE_STOP_OPACITY_DEFAULT = 0.92
 let routeSimPaintApplied = false
 
+// Base heat weight: the garbage volume at the stop, scaled so a typical stop
+// (~500 kg) contributes weight 1 and huge aggregated cells saturate at 3.
+const ROUTE_SIM_HEAT_BASE_WEIGHT = ['min', 3, ['/', ['to-number', ['get', 'demandKg']], 500]]
+
+// Served stops stop contributing heat — their garbage has been collected.
+const buildHeatWeightExpression = (progressMap) => {
+  const branches = []
+  for (const [vehicleId, info] of Object.entries(progressMap)) {
+    branches.push(vehicleId, [
+      'case',
+      ['<', ['get', 'stopIndex'], Number(info.visitedStops) || 0],
+      0,
+      ROUTE_SIM_HEAT_BASE_WEIGHT
+    ])
+  }
+  if (!branches.length) return ROUTE_SIM_HEAT_BASE_WEIGHT
+  return ['match', ['get', 'vehicleId'], ...branches, ROUTE_SIM_HEAT_BASE_WEIGHT]
+}
+
 // Served stops (stopIndex below the vehicle's visited count) fade out.
 const buildVisitedStopExpression = (progressMap, visitedValue, defaultValue) => {
   const branches = []
@@ -765,6 +790,12 @@ const buildVisitedStopExpression = (progressMap, visitedValue, defaultValue) => 
   return ['match', ['get', 'vehicleId'], ...branches, defaultValue]
 }
 
+const setStopLayersVisibility = (m, visible) => {
+  const visibility = visible ? 'visible' : 'none'
+  if (m.getLayer('route-stop-layer')) m.setLayoutProperty('route-stop-layer', 'visibility', visibility)
+  if (m.getLayer('route-stop-order-layer')) m.setLayoutProperty('route-stop-order-layer', 'visibility', visibility)
+}
+
 const resetRouteSimPaint = () => {
   const m = map.value
   if (!m || !routeSimPaintApplied) return
@@ -775,6 +806,10 @@ const resetRouteSimPaint = () => {
       'visibility',
       props.routeLayerVisibility?.line === false ? 'none' : 'visible'
     )
+  }
+  setStopLayersVisibility(m, props.routeLayerVisibility?.stops !== false)
+  if (m.getLayer('route-sim-heat-layer')) {
+    m.setLayoutProperty('route-sim-heat-layer', 'visibility', 'none')
   }
   if (m.getLayer('route-stop-layer')) {
     m.setPaintProperty('route-stop-layer', 'circle-opacity', ROUTE_STOP_OPACITY_DEFAULT)
@@ -800,6 +835,17 @@ const applyRouteSimProgress = () => {
   if (m.getLayer('route-line-layer')) {
     m.setLayoutProperty('route-line-layer', 'visibility', 'none')
   }
+
+  // Heat view swaps the stop dots for a heatmap whose weight drops to zero at
+  // stops the truck has already served.
+  const heatOn = props.simulatorState?.routeHeatmap === true
+  if (m.getLayer('route-sim-heat-layer')) {
+    m.setLayoutProperty('route-sim-heat-layer', 'visibility', heatOn ? 'visible' : 'none')
+    if (heatOn) {
+      m.setPaintProperty('route-sim-heat-layer', 'heatmap-weight', buildHeatWeightExpression(progressMap))
+    }
+  }
+  setStopLayersVisibility(m, !heatOn && props.routeLayerVisibility?.stops !== false)
 
   if (m.getLayer('route-stop-layer')) {
     m.setPaintProperty(
@@ -828,7 +874,7 @@ watch(
 )
 
 watch(
-  () => [props.simulatorState?.active, props.simulatorState?.mode],
+  () => [props.simulatorState?.active, props.simulatorState?.mode, props.simulatorState?.routeHeatmap],
   () => applyRouteSimProgress()
 )
 
@@ -861,6 +907,24 @@ const ensureRouteSimLayers = () => {
     m.addSource('route-sim-line-remaining-source', {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] }
+    })
+  }
+  if (!m.getSource('route-sim-heat-source')) {
+    m.addSource('route-sim-heat-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getLayer('route-sim-heat-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-heat-layer',
+      type: 'heatmap',
+      source: 'route-sim-heat-source',
+      layout: { visibility: 'none' },
+      paint: {
+        'heatmap-weight': ROUTE_SIM_HEAT_BASE_WEIGHT,
+        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 8, 14, 12, 26, 16, 44],
+        'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 14, 1.4],
+        'heatmap-opacity': 0.75
+      }
     })
   }
   if (!m.getLayer('route-sim-line-traveled-layer')) {
@@ -956,6 +1020,11 @@ watch(
   (fc) => setRouteSimSourceData('route-sim-line-remaining-source', fc)
 )
 
+watch(
+  () => props.routeSimHeatGeoJson,
+  (fc) => setRouteSimSourceData('route-sim-heat-source', fc)
+)
+
 onMounted(() => {
   createMap()
 })
@@ -1049,6 +1118,7 @@ onBeforeUnmount(() => {
       @select-segment="emit('simulator-select-segment', $event)"
       @set-window="emit('simulator-set-window', $event)"
       @toggle-live="emit('simulator-toggle-live')"
+      @toggle-route-heatmap="emit('simulator-toggle-route-heatmap')"
       @stop="emit('simulator-stop')"
     />
 

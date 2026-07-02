@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'stop'])
+const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'toggle-route-heatmap', 'stop'])
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -307,6 +307,17 @@ const onTrackKeydown = (event) => {
           {{ speed }}×
         </button>
       </div>
+      <button
+        v-if="simulatorState.mode === 'route-plan'"
+        class="sim-bar-smooth"
+        :class="{ active: simulatorState.routeHeatmap }"
+        type="button"
+        :aria-pressed="simulatorState.routeHeatmap === true"
+        title="收運點以熱力圖顯示，收完垃圾的點熱力歸零"
+        @click="emit('toggle-route-heatmap')"
+      >
+        <span class="sim-bar-smooth-label">熱力</span>
+      </button>
       <button
         v-if="simulatorState.mode !== 'route-plan'"
         class="sim-bar-smooth"

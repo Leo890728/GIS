@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { fetchHistoryFrames, fetchHistoryRange } from './simulatorApi'
 import { deriveSessionSegments, toMs } from './playbackTimeline'
-import { bearingToTruckIconSuffix, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
+import { bearingToTruckIconSuffix, buildRouteHeatGeoJson, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
 import { activePropertiesAt, interpolateSegmentsAt, remainingCoords, traveledCoords } from './trackInterpolation'
 import { getVehicleColor } from '../route/useRoutePlanner'
 import { useFrameRenderer } from './useFrameRenderer'
@@ -39,6 +39,7 @@ const createState = () => ({
   featureCount: 0,
   playing: false,
   speed: DEFAULT_SPEED,
+  routeHeatmap: false,
   smooth: false,
   smoothing: false,
   smoothProgress: { done: 0, total: 0 },
@@ -81,6 +82,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   // the remaining portion (solid), both colored per vehicle.
   const routeSimTraveledGeoJson = ref({ type: 'FeatureCollection', features: [] })
   const routeSimRemainingGeoJson = ref({ type: 'FeatureCollection', features: [] })
+  // Pickup stops weighted by collected garbage, for the toggleable heatmap view.
+  const routeSimHeatGeoJson = ref({ type: 'FeatureCollection', features: [] })
   // Per-vehicle playback progress `{ [vehicleId]: { visitedStops } }` consumed
   // by the map to fade already-served stops.
   const routeSimProgress = ref({})
@@ -92,6 +95,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     routeSimGeoJson.value = { type: 'FeatureCollection', features: [] }
     routeSimTraveledGeoJson.value = { type: 'FeatureCollection', features: [] }
     routeSimRemainingGeoJson.value = { type: 'FeatureCollection', features: [] }
+    routeSimHeatGeoJson.value = { type: 'FeatureCollection', features: [] }
     routeSimProgress.value = {}
   }
 
@@ -473,6 +477,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     }
     stop()
     routePlanTracks = built.tracks
+    routeSimHeatGeoJson.value = buildRouteHeatGeoJson(routeResult)
     state.active = true
     state.mode = 'route-plan'
     state.dataId = 'route-plan'
@@ -514,9 +519,13 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     routeSimGeoJson,
     routeSimTraveledGeoJson,
     routeSimRemainingGeoJson,
+    routeSimHeatGeoJson,
     routeSimProgress,
     selectedRouteVehicle,
     startRouteSimulation,
+    toggleRouteHeatmap: () => {
+      if (isRoutePlanMode()) state.routeHeatmap = !state.routeHeatmap
+    },
     selectSimulatorDataset: selectDataset,
     setSimulatorTime: setTime,
     toggleSimulatorPlay: togglePlay,

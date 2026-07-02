@@ -48,9 +48,11 @@ const {
   routeSimGeoJson,
   routeSimTraveledGeoJson,
   routeSimRemainingGeoJson,
+  routeSimHeatGeoJson,
   routeSimProgress,
   selectedRouteVehicle,
   startRouteSimulation,
+  toggleRouteHeatmap,
   selectSimulatorDataset,
   setSimulatorTime,
   toggleSimulatorPlay,
@@ -182,6 +184,7 @@ const handleToggleRouteLayer = (layerKey) => {
         :route-sim-geo-json="routeSimGeoJson"
         :route-sim-traveled-geo-json="routeSimTraveledGeoJson"
         :route-sim-remaining-geo-json="routeSimRemainingGeoJson"
+        :route-sim-heat-geo-json="routeSimHeatGeoJson"
         :route-sim-progress="routeSimProgress"
         :route-sim-selected-vehicle="selectedRouteVehicle"
         :route-vehicle-capacity-kg="Number(routeForm.vehicleCapacityKg) || 0"
@@ -197,6 +200,7 @@ const handleToggleRouteLayer = (layerKey) => {
         @simulator-select-segment="selectSimulatorSegment"
         @simulator-set-window="setSimulatorWindow($event.from, $event.to)"
         @simulator-toggle-live="toggleSimulatorLive"
+        @simulator-toggle-route-heatmap="toggleRouteHeatmap"
         @simulator-toggle-follow="toggleSimulatorAutoFollow"
         @simulator-select-feature="selectSimulatorFeature"
         @simulator-toggle-track="toggleSimulatorTrack"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bearingToTruckIconSuffix, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
+import { bearingToTruckIconSuffix, buildRouteHeatGeoJson, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
 import { remainingCoords, traveledCoords } from './trackInterpolation'
 
 const BASE = 1_000_000
@@ -101,6 +101,28 @@ describe('buildRoutePlanTracks', () => {
     ]
     expect(pathBearingAt(northbound, 500)).toBeCloseTo(0, 5)
     expect(pathBearingAt(northbound, 1500)).toBeCloseTo(0, 5)
+  })
+
+  it('builds heat points from pickup load deltas, resetting after disposal', () => {
+    const route = {
+      vehicle_id: 'truck-1',
+      stops: [
+        { type: 'depot', lng: 0, lat: 0, load_kg: 0 },
+        { type: 'pickup', lng: 0.001, lat: 0, load_kg: 300 },
+        { type: 'pickup', lng: 0.002, lat: 0, load_kg: 1000 },
+        { type: 'disposal', lng: 0.003, lat: 0, load_kg: 0 },
+        { type: 'pickup', lng: 0.004, lat: 0, load_kg: 450 },
+        { type: 'depot', lng: 0.005, lat: 0, load_kg: 450 }
+      ]
+    }
+    const heat = buildRouteHeatGeoJson({ routes: [route] })
+    expect(heat.features).toHaveLength(3)
+    expect(heat.features.map((f) => f.properties.demandKg)).toEqual([300, 700, 450])
+    // stopIndex matches the position in route.stops so playback can zero
+    // served stops by the vehicle's visited count.
+    expect(heat.features.map((f) => f.properties.stopIndex)).toEqual([1, 2, 4])
+    expect(heat.features[0].properties.vehicleId).toBe('truck-1')
+    expect(buildRouteHeatGeoJson(null).features).toEqual([])
   })
 
   it('maps bearings onto the eight tcg-v2 truck sprites', () => {
