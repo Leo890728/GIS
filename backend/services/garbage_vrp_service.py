@@ -15,6 +15,7 @@ from backend.services.vrp.nodes import (
     _collect_dataset_nodes,
     _collect_disposal_nodes,
     _collect_preset_nodes,
+    _find_nearest_disposal_node,
     _select_nearest_disposal_nodes,
     _snap_pickup_nodes_to_road,
 )
@@ -81,9 +82,35 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
     if aggregated_node_count == 0:
         raise LookupError("No pickup nodes after aggregation")
 
+    if aggregated and config.snap_to_road_enabled:
+        # Aggregated centroids are synthetic points that usually sit off-road at
+        # the cell center. Snap them with no distance cap so reported stops sit
+        # where vehicles actually visit (OSRM snaps unconditionally when routing).
+        pickup_nodes, _ = _snap_pickup_nodes_to_road(
+            pickup_nodes,
+            enabled=True,
+            max_distance_m=float("inf"),
+            osrm_base_url=config.osrm_base_url,
+            profile=config.profile,
+        )
+
     disposal_nodes = _collect_disposal_nodes(disposal_payload, dataset_service)
     if not disposal_nodes:
         raise LookupError("No available disposal nodes")
+
+    # Auto depot: without an explicit start/end the vehicles are based at the
+    # disposal point (cleaning team) nearest the pickup area's centroid.
+    if start_coord is None or end_coord is None:
+        centroid = (
+            sum(node["lng"] for node in pickup_nodes) / len(pickup_nodes),
+            sum(node["lat"] for node in pickup_nodes) / len(pickup_nodes),
+        )
+        home = _find_nearest_disposal_node(disposal_nodes, centroid)
+        if start_coord is None:
+            start_coord = [home["lng"], home["lat"]]
+        if end_coord is None:
+            end_coord = [home["lng"], home["lat"]]
+
     disposal_nodes = _select_nearest_disposal_nodes(
         disposal_nodes,
         anchor_coord=(start_coord[0], start_coord[1]),
@@ -124,4 +151,6 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
         raw_node_count,
         snapped_node_count,
         aggregated_node_count,
+        start_coord=start_coord,
+        end_coord=end_coord,
     )

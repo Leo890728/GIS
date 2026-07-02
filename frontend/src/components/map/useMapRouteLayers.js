@@ -8,7 +8,9 @@ const routeAnchorLayerId = 'route-anchor-layer'
 
 const emptyFeatureCollection = () => ({ type: 'FeatureCollection', features: [] })
 const alwaysMatchFilter = ['all']
-const neverMatchFilter = ['==', 1, 0]
+// Expression form — a bare ['==', 1, 0] parses as a legacy filter and fails
+// validation ("filter[1]: string expected, number found").
+const neverMatchFilter = ['boolean', false]
 
 const toVisibility = (enabled) => (enabled === false ? 'none' : 'visible')
 

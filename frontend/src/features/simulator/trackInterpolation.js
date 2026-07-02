@@ -137,6 +137,30 @@ export const segmentsToEndpointsGeoJson = (segments) => {
   }
 }
 
+// The portion of a path not yet traveled at instant `ms`, starting with an
+// interpolated point at the exact clock position so the line begins right
+// under the moving vehicle. Complements `traveledCoords`.
+export const remainingCoords = (path, ms) => {
+  if (path.length < 2) return []
+  if (ms <= path[0].tMs) return path.map((point) => [point.lng, point.lat])
+  if (ms >= path[path.length - 1].tMs) return []
+  const coords = []
+  for (let i = 1; i < path.length; i += 1) {
+    if (path[i].tMs > ms) {
+      const a = path[i - 1]
+      const b = path[i]
+      const span = b.tMs - a.tMs
+      const f = span > 0 ? (ms - a.tMs) / span : 0
+      coords.push([a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f])
+      for (let j = i; j < path.length; j += 1) {
+        coords.push([path[j].lng, path[j].lat])
+      }
+      break
+    }
+  }
+  return coords
+}
+
 // The portion of a path already traveled at instant `ms`, including an
 // interpolated point at the exact clock position so the colored line ends right
 // under the moving vehicle.

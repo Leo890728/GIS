@@ -122,7 +122,7 @@ def _collect_dataset_nodes(node_source, range_geojson, dataset_service):
 
 
 def _collect_disposal_nodes(disposal_payload, dataset_service):
-    source_data_id = disposal_payload.get("sourceDataId") or "moenv_incinerators"
+    source_data_id = disposal_payload.get("sourceDataId") or "taichung_cleaning_teams"
     if not isinstance(source_data_id, str) or not source_data_id.strip():
         raise ValueError("disposal.sourceDataId must be a string")
     policy = disposal_payload.get("policy") or "nearest_auto"
@@ -157,6 +157,15 @@ def _collect_disposal_nodes(disposal_payload, dataset_service):
             }
         )
     return nodes
+
+
+def _find_nearest_disposal_node(disposal_nodes, anchor_coord):
+    if not disposal_nodes:
+        return None
+    return min(
+        disposal_nodes,
+        key=lambda node: _approx_distance_m(anchor_coord, (node["lng"], node["lat"])),
+    )
 
 
 def _select_nearest_disposal_nodes(disposal_nodes, anchor_coord, max_candidates):

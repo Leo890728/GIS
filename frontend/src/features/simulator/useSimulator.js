@@ -1,6 +1,9 @@
-import { computed, onBeforeUnmount, reactive } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { fetchHistoryFrames, fetchHistoryRange } from './simulatorApi'
 import { deriveSessionSegments, toMs } from './playbackTimeline'
+import { bearingToTruckIconSuffix, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
+import { activePropertiesAt, interpolateSegmentsAt, remainingCoords, traveledCoords } from './trackInterpolation'
+import { getVehicleColor } from '../route/useRoutePlanner'
 import { useFrameRenderer } from './useFrameRenderer'
 import { useSmoothRenderer } from './useSmoothRenderer'
 import { useSelectedTrack } from './useSelectedTrack'
@@ -68,6 +71,125 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let lastTickReal = null
   let debounceTimer = null
 
+  // Route-plan playback: synthetic tracks built from a solved VRP result instead
+  // of recorded history. Rendered into its own GeoJSON ref (a dedicated map
+  // layer), so no live data layer is taken over.
+  let routePlanTracks = []
+  let lastRoutePlanRenderReal = 0
+  const routeSimGeoJson = ref({ type: 'FeatureCollection', features: [] })
+  // Per-frame route split: the already-traveled portion (drawn translucent) and
+  // the remaining portion (solid), both colored per vehicle.
+  const routeSimTraveledGeoJson = ref({ type: 'FeatureCollection', features: [] })
+  const routeSimRemainingGeoJson = ref({ type: 'FeatureCollection', features: [] })
+  // Per-vehicle playback progress `{ [vehicleId]: { visitedStops } }` consumed
+  // by the map to fade already-served stops.
+  const routeSimProgress = ref({})
+
+  const isRoutePlanMode = () => state.mode === 'route-plan'
+
+  const clearRoutePlan = () => {
+    routePlanTracks = []
+    routeSimGeoJson.value = { type: 'FeatureCollection', features: [] }
+    routeSimTraveledGeoJson.value = { type: 'FeatureCollection', features: [] }
+    routeSimRemainingGeoJson.value = { type: 'FeatureCollection', features: [] }
+    routeSimProgress.value = {}
+  }
+
+  const renderRoutePlan = (ms) => {
+    const features = []
+    const traveledFeatures = []
+    const remainingFeatures = []
+    const progress = {}
+    for (const track of routePlanTracks) {
+      // Clamp to the endpoints so vehicles wait at the depot before departure
+      // and rest at the end depot after finishing, instead of disappearing.
+      const position = interpolateSegmentsAt(track.segments, ms)
+      if (!position) continue
+      const path = track.segments[0].path
+      features.push({
+        type: 'Feature',
+        properties: {
+          ...track.properties,
+          ...activePropertiesAt(track.samples, ms),
+          __trackKey: track.key,
+          truckIconId: `tcg-v2-garbage-${bearingToTruckIconSuffix(pathBearingAt(path, ms))}`
+        },
+        geometry: { type: 'Point', coordinates: position }
+      })
+      const traveled = traveledCoords(path, ms)
+      if (traveled.length >= 2) {
+        traveledFeatures.push({
+          type: 'Feature',
+          properties: { ...track.properties },
+          geometry: { type: 'LineString', coordinates: traveled }
+        })
+      }
+      const remaining = remainingCoords(path, ms)
+      if (remaining.length >= 2) {
+        remainingFeatures.push({
+          type: 'Feature',
+          properties: { ...track.properties },
+          geometry: { type: 'LineString', coordinates: remaining }
+        })
+      }
+      progress[track.properties.vehicleId] = {
+        visitedStops: track.stopTimesMs.filter((tMs) => tMs <= ms).length
+      }
+    }
+    routeSimGeoJson.value = { type: 'FeatureCollection', features }
+    routeSimTraveledGeoJson.value = { type: 'FeatureCollection', features: traveledFeatures }
+    routeSimRemainingGeoJson.value = { type: 'FeatureCollection', features: remainingFeatures }
+    routeSimProgress.value = progress
+    state.featureCount = features.length
+    // Keep the selection ring pinned to the selected vehicle as it moves, and
+    // recenter the camera when auto-follow is on.
+    if (state.selected?.key != null) {
+      const match = features.find((feature) => feature.properties.__trackKey === state.selected.key)
+      state.selectedPos = match ? match.geometry.coordinates : null
+      if (state.autoFollow && state.selectedPos) state.followCenter = state.selectedPos
+    }
+  }
+
+  // Selecting a simulated vehicle drives the right-hand vehicle drawer
+  // (timeline + current load); no history-track fetch is involved.
+  const selectRouteVehicle = (payload) => {
+    if (!payload || payload.key == null || payload.key === '') {
+      state.selected = null
+      state.selectedPos = null
+      state.autoFollow = false
+      state.followCenter = null
+      return
+    }
+    state.selected = { key: String(payload.key), properties: payload.properties || {} }
+    renderRoutePlan(state.currentTime)
+  }
+
+  const selectedRouteVehicle = computed(() => {
+    if (state.mode !== 'route-plan' || !state.selected) return null
+    const track = routePlanTracks.find((candidate) => candidate.key === state.selected.key)
+    if (!track) return null
+    return {
+      key: track.key,
+      vehicleId: track.properties.vehicleId,
+      vehicleColor: track.properties.vehicleColor,
+      stops: track.samples.map((sample) => ({
+        tMs: sample.tMs,
+        name: sample.properties.stopName,
+        type: sample.properties.stopType,
+        loadKg: sample.properties.loadKg
+      }))
+    }
+  })
+
+  // Same ~25fps cap the smooth renderer uses during continuous play.
+  const renderRoutePlanTick = (ms, realNow = null) => {
+    if (realNow != null) {
+      if (realNow - lastRoutePlanRenderReal < 40) return
+      lastRoutePlanRenderReal = realNow
+    }
+    renderRoutePlan(ms)
+  }
+
   // --- Rendering strategies + selection overlay ------------------------------
 
   const selectedTrack = useSelectedTrack({
@@ -96,6 +218,10 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   // overlay. `realNow` (a RAF timestamp) throttles smooth playback; omit it for
   // immediate renders. `force` re-applies the current frame even if unchanged.
   const renderAt = (ms, { force = false, realNow = null } = {}) => {
+    if (isRoutePlanMode()) {
+      renderRoutePlanTick(ms, realNow)
+      return
+    }
     if (state.smooth && smooth.hasTracks()) smooth.renderTick(ms, realNow)
     else frame.applyActiveFrame(force)
     selectedTrack.updateTrackProgress()
@@ -177,6 +303,10 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     live.exitLive()
     const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
     state.currentTime = clamped
+    if (isRoutePlanMode()) {
+      renderRoutePlan(clamped)
+      return
+    }
     selectedTrack.updateTrackProgress()
     if (state.smooth && smooth.hasTracks()) {
       smooth.renderSmooth(clamped)
@@ -189,6 +319,9 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   // --- Smooth playback toggle ------------------------------------------------
 
   const setSmooth = async (enabled) => {
+    // Route-plan tracks already follow the road geometry; OSRM smoothing is a
+    // history-playback concept and would fetch a nonexistent dataset.
+    if (isRoutePlanMode()) return
     state.smooth = enabled === true
     if (state.smooth) {
       await smooth.loadTracks()
@@ -264,6 +397,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!dataId) return
     pause()
     live.exitLive()
+    clearRoutePlan()
+    if (isRoutePlanMode()) state.mode = 'history'
     selectedTrack.clearSelection()
     state.loading = true
     state.error = ''
@@ -322,9 +457,37 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     frame.reset()
     smooth.reset()
     selectedTrack.reset()
+    clearRoutePlan()
     dataLayers.exitSimulator()
     layerEntry = null
     Object.assign(state, createState())
+  }
+
+  // Play back a solved garbage-route result: all vehicles depart "now" and
+  // follow their route geometry, pinned to the solver's per-leg travel times.
+  const startRouteSimulation = (routeResult) => {
+    const built = buildRoutePlanTracks(routeResult, Date.now(), getVehicleColor)
+    if (!built.tracks.length) {
+      state.error = '目前沒有可模擬的路線，請先在「路線」頁求解。'
+      return
+    }
+    stop()
+    routePlanTracks = built.tracks
+    state.active = true
+    state.mode = 'route-plan'
+    state.dataId = 'route-plan'
+    state.from = built.fromMs
+    state.to = built.toMs
+    state.count = built.frames.length
+    state.intervalSeconds = 1
+    state.frames = built.frames
+    state.segments = []
+    state.selectedSegmentIndex = -1
+    state.playFrom = state.from
+    state.playTo = state.to
+    state.currentTime = state.from
+    renderRoutePlan(state.currentTime)
+    play()
   }
 
   // --- Global transport shortcuts --------------------------------------------
@@ -348,6 +511,12 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     simulatorState: state,
     simulatorCandidates: candidates,
     simulatorSpeeds: SPEED_PRESETS,
+    routeSimGeoJson,
+    routeSimTraveledGeoJson,
+    routeSimRemainingGeoJson,
+    routeSimProgress,
+    selectedRouteVehicle,
+    startRouteSimulation,
     selectSimulatorDataset: selectDataset,
     setSimulatorTime: setTime,
     toggleSimulatorPlay: togglePlay,
@@ -356,10 +525,18 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     toggleSimulatorSmooth: toggleSmooth,
     selectSimulatorSegment: selectSegment,
     setSimulatorWindow: setWindow,
-    toggleSimulatorLive: live.toggleLive,
+    toggleSimulatorLive: () => {
+      if (!isRoutePlanMode()) live.toggleLive()
+    },
     toggleSimulatorAutoFollow: selectedTrack.toggleAutoFollow,
-    selectSimulatorFeature: selectedTrack.selectFeature,
-    clearSimulatorSelection: selectedTrack.clearSelection,
+    selectSimulatorFeature: (payload) => {
+      if (isRoutePlanMode()) selectRouteVehicle(payload)
+      else selectedTrack.selectFeature(payload)
+    },
+    clearSimulatorSelection: () => {
+      if (isRoutePlanMode()) selectRouteVehicle(null)
+      else selectedTrack.clearSelection()
+    },
     toggleSimulatorTrack: selectedTrack.toggleSelectedTrack,
     stopSimulator: stop
   }

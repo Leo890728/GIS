@@ -8,6 +8,8 @@ import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
 import { useMapRouteLayers } from './map/useMapRouteLayers'
 import SimulatorControlBar from '../features/simulator/SimulatorControlBar.vue'
 import AnalyticsDrawer from '../features/simulator/AnalyticsDrawer.vue'
+import RouteVehicleDrawer from '../features/simulator/RouteVehicleDrawer.vue'
+import { ensureIcons } from '../features/data/icons/registry'
 
 const basemapSourceId = 'basemap-source'
 const basemapLayerId = 'basemap-layer'
@@ -67,6 +69,30 @@ const props = defineProps({
   simulatorSpeeds: {
     type: Array,
     default: () => [1, 10, 30, 60]
+  },
+  routeSimGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
+  routeSimTraveledGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
+  routeSimRemainingGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
+  routeSimSelectedVehicle: {
+    type: Object,
+    default: null
+  },
+  routeSimProgress: {
+    type: Object,
+    default: () => ({})
+  },
+  routeVehicleCapacityKg: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -226,9 +252,13 @@ const enforceLayerOrder = () => {
     ...getBoundaryLayerIds(props.layerState),
     ...getDataLayerIds(props.dataLayerState),
     'route-line-layer',
+    'route-sim-line-traveled-layer',
+    'route-sim-line-remaining-layer',
     'route-stop-layer',
     'route-stop-order-layer',
-    'route-anchor-layer'
+    'route-anchor-layer',
+    'route-sim-vehicle-layer',
+    'route-sim-vehicle-label-layer'
   ]
 
   for (const id of orderedIds) {
@@ -374,6 +404,24 @@ const handleDataHover = (event) => {
 const handleSimulatorClick = (event) => {
   const m = map.value
   if (!m || !props.simulatorState?.active) return
+  // Route-plan playback: clicking a simulated truck opens the vehicle drawer
+  // (stop timeline + current load); clicking empty space closes it.
+  if (props.simulatorState.mode === 'route-plan') {
+    if (!m.getLayer('route-sim-vehicle-layer')) return
+    const vehicleFeatures = m.queryRenderedFeatures(event.point, { layers: ['route-sim-vehicle-layer'] })
+    const vehicleFeature = vehicleFeatures[0]
+    const trackKey = vehicleFeature?.properties?.__trackKey
+    if (trackKey == null || trackKey === '') {
+      emit('simulator-select-feature', null)
+      return
+    }
+    emit('simulator-select-feature', {
+      key: String(trackKey),
+      properties: vehicleFeature.properties || {},
+      coordinates: vehicleFeature?.geometry?.coordinates || [event.lngLat.lng, event.lngLat.lat]
+    })
+    return
+  }
   const pointLayerIds = getDataPointLayerIds(props.dataLayerState).filter((layerId) => m.getLayer(layerId))
   if (!pointLayerIds.length) return
   const features = m.queryRenderedFeatures(event.point, { layers: pointLayerIds })
@@ -693,6 +741,221 @@ watch(
   }
 )
 
+// --- Route-plan playback: traveled/remaining route split + stop fading -------
+//
+// While simulating, the static route-line-layer is hidden and replaced by two
+// shared layers fed per frame: the traveled portion (translucent vehicle color)
+// and the remaining portion (solid). Stops already served fade to translucent
+// via a rebuilt paint expression.
+const ROUTE_STOP_OPACITY_DEFAULT = 0.92
+let routeSimPaintApplied = false
+
+// Served stops (stopIndex below the vehicle's visited count) fade out.
+const buildVisitedStopExpression = (progressMap, visitedValue, defaultValue) => {
+  const branches = []
+  for (const [vehicleId, info] of Object.entries(progressMap)) {
+    branches.push(vehicleId, [
+      'case',
+      ['<', ['get', 'stopIndex'], Number(info.visitedStops) || 0],
+      visitedValue,
+      defaultValue
+    ])
+  }
+  if (!branches.length) return defaultValue
+  return ['match', ['get', 'vehicleId'], ...branches, defaultValue]
+}
+
+const resetRouteSimPaint = () => {
+  const m = map.value
+  if (!m || !routeSimPaintApplied) return
+  routeSimPaintApplied = false
+  if (m.getLayer('route-line-layer')) {
+    m.setLayoutProperty(
+      'route-line-layer',
+      'visibility',
+      props.routeLayerVisibility?.line === false ? 'none' : 'visible'
+    )
+  }
+  if (m.getLayer('route-stop-layer')) {
+    m.setPaintProperty('route-stop-layer', 'circle-opacity', ROUTE_STOP_OPACITY_DEFAULT)
+    m.setPaintProperty('route-stop-layer', 'circle-stroke-opacity', 1)
+  }
+  if (m.getLayer('route-stop-order-layer')) {
+    m.setPaintProperty('route-stop-order-layer', 'text-opacity', 1)
+  }
+}
+
+const applyRouteSimProgress = () => {
+  const m = map.value
+  if (!m || !mapLoaded.value) return
+  const simulating = props.simulatorState?.active && props.simulatorState?.mode === 'route-plan'
+  const progressMap = props.routeSimProgress || {}
+  if (!simulating || !Object.keys(progressMap).length) {
+    resetRouteSimPaint()
+    return
+  }
+  routeSimPaintApplied = true
+
+  // The traveled/remaining split layers replace the static route lines.
+  if (m.getLayer('route-line-layer')) {
+    m.setLayoutProperty('route-line-layer', 'visibility', 'none')
+  }
+
+  if (m.getLayer('route-stop-layer')) {
+    m.setPaintProperty(
+      'route-stop-layer',
+      'circle-opacity',
+      buildVisitedStopExpression(progressMap, 0.25, ROUTE_STOP_OPACITY_DEFAULT)
+    )
+    m.setPaintProperty(
+      'route-stop-layer',
+      'circle-stroke-opacity',
+      buildVisitedStopExpression(progressMap, 0.25, 1)
+    )
+  }
+  if (m.getLayer('route-stop-order-layer')) {
+    m.setPaintProperty(
+      'route-stop-order-layer',
+      'text-opacity',
+      buildVisitedStopExpression(progressMap, 0.3, 1)
+    )
+  }
+}
+
+watch(
+  () => props.routeSimProgress,
+  () => applyRouteSimProgress()
+)
+
+watch(
+  () => [props.simulatorState?.active, props.simulatorState?.mode],
+  () => applyRouteSimProgress()
+)
+
+// Simulated garbage-truck positions during route-plan playback: a truck sprite
+// per vehicle (8-direction tcg-v2 set, picked by heading in `truckIconId`),
+// with the vehicle id above in the vehicle's color. The traveled/remaining
+// route split renders beneath the stop dots (see enforceLayerOrder) so stops
+// stay clickable and visible on top of the lines.
+const ROUTE_SIM_TRUCK_ICONS = Array.from({ length: 8 }, (_, index) => ({
+  id: `tcg-v2-garbage-o0${index + 1}`,
+  src: `/icons/tcg-v2/noGarbage_truck_o0${index + 1}.png`
+}))
+
+const ensureRouteSimLayers = () => {
+  const m = map.value
+  if (!m || !mapLoaded.value) return false
+  let createdLayers = false
+  // Idempotent: skips ids already registered by the live data layers.
+  ensureIcons(m, ROUTE_SIM_TRUCK_ICONS).catch((error) => console.warn(error))
+  if (!m.getSource('route-sim-source')) {
+    m.addSource('route-sim-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getSource('route-sim-line-traveled-source')) {
+    m.addSource('route-sim-line-traveled-source', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    })
+  }
+  if (!m.getSource('route-sim-line-remaining-source')) {
+    m.addSource('route-sim-line-remaining-source', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    })
+  }
+  if (!m.getLayer('route-sim-line-traveled-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-line-traveled-layer',
+      type: 'line',
+      source: 'route-sim-line-traveled-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['get', 'vehicleColor'],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 3.2, 16, 5.0],
+        'line-opacity': 0.28
+      }
+    })
+  }
+  if (!m.getLayer('route-sim-line-remaining-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-line-remaining-layer',
+      type: 'line',
+      source: 'route-sim-line-remaining-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['get', 'vehicleColor'],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 3.2, 16, 5.0],
+        'line-opacity': 0.9
+      }
+    })
+  }
+  if (!m.getLayer('route-sim-vehicle-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-vehicle-layer',
+      type: 'symbol',
+      source: 'route-sim-source',
+      layout: {
+        'icon-image': ['get', 'truckIconId'],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 12, 0.9, 16, 1.2],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true
+      }
+    })
+  }
+  if (!m.getLayer('route-sim-vehicle-label-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-vehicle-label-layer',
+      type: 'symbol',
+      source: 'route-sim-source',
+      layout: {
+        'text-field': ['get', 'vehicleId'],
+        'text-font': ['Open Sans Regular'],
+        'text-size': 10,
+        'text-offset': [0, -2.2],
+        'text-anchor': 'bottom',
+        'text-allow-overlap': true,
+        'text-ignore-placement': true
+      },
+      paint: {
+        // The truck sprite replaced the per-vehicle colored dot, so the label
+        // carries the vehicle color for telling trucks apart.
+        'text-color': ['get', 'vehicleColor'],
+        'text-halo-color': '#0f1729',
+        'text-halo-width': 1.4
+      }
+    })
+  }
+  // Newly added layers land on top of everything; re-assert the intended
+  // stacking (sim route lines below stop dots, vehicle dots on top).
+  if (createdLayers) enforceLayerOrder()
+  return true
+}
+
+const setRouteSimSourceData = (sourceId, fc) => {
+  if (!ensureRouteSimLayers()) return
+  const src = map.value.getSource(sourceId)
+  if (src) src.setData(fc || { type: 'FeatureCollection', features: [] })
+}
+
+watch(
+  () => props.routeSimGeoJson,
+  (fc) => setRouteSimSourceData('route-sim-source', fc)
+)
+
+watch(
+  () => props.routeSimTraveledGeoJson,
+  (fc) => setRouteSimSourceData('route-sim-line-traveled-source', fc)
+)
+
+watch(
+  () => props.routeSimRemainingGeoJson,
+  (fc) => setRouteSimSourceData('route-sim-line-remaining-source', fc)
+)
+
 onMounted(() => {
   createMap()
 })
@@ -790,11 +1053,21 @@ onBeforeUnmount(() => {
     />
 
     <AnalyticsDrawer
-      v-if="props.simulatorState?.active"
+      v-if="props.simulatorState?.active && props.simulatorState?.mode !== 'route-plan'"
       :simulator-state="props.simulatorState"
       @toggle-track="emit('simulator-toggle-track')"
       @toggle-follow="emit('simulator-toggle-follow')"
       @clear-selection="emit('simulator-select-feature', null)"
+    />
+
+    <RouteVehicleDrawer
+      v-if="props.simulatorState?.active && props.simulatorState?.mode === 'route-plan' && props.routeSimSelectedVehicle"
+      :simulator-state="props.simulatorState"
+      :vehicle="props.routeSimSelectedVehicle"
+      :capacity-kg="props.routeVehicleCapacityKg"
+      @close="emit('simulator-select-feature', null)"
+      @seek="emit('simulator-set-time', $event)"
+      @toggle-follow="emit('simulator-toggle-follow')"
     />
   </section>
 </template>

@@ -154,15 +154,6 @@ const formatStopType = (value) => stopTypeLabels[value] || value
         </div>
       </div>
 
-      <label class="field-label" for="route-osrm-url">OSRM 服務 URL</label>
-      <input
-        id="route-osrm-url"
-        class="field-control"
-        type="text"
-        :value="routeForm.osrmBaseUrl"
-        @input="updateText('osrmBaseUrl', $event)"
-      />
-
       <div class="field-row">
         <div class="field-col">
           <label class="field-label" for="route-time-limit">求解時間上限 (秒)</label>
@@ -232,7 +223,7 @@ const formatStopType = (value) => stopTypeLabels[value] || value
           :checked="routeForm.snapToRoadEnabled"
           @change="updateCheckbox('snapToRoadEnabled', $event)"
         />
-        <span>聚合前將點位貼齊道路</span>
+        <span>將點位貼齊道路（聚合前與聚合後）</span>
       </label>
 
       <label class="field-label" for="route-snap-distance">貼齊道路最大距離 (m)</label>
@@ -246,23 +237,9 @@ const formatStopType = (value) => stopTypeLabels[value] || value
         @input="updateNumber('snapToRoadMaxDistanceMeters', $event)"
       />
 
-      <label class="field-label" for="route-node-filters">節點篩選條件 (JSON)</label>
-      <textarea
-        id="route-node-filters"
-        class="field-control text-area"
-        rows="3"
-        :value="routeForm.nodeFiltersText"
-        @input="updateText('nodeFiltersText', $event)"
-      />
-
-      <label class="field-label" for="route-disposal-filters">處理場篩選條件 (JSON)</label>
-      <textarea
-        id="route-disposal-filters"
-        class="field-control text-area"
-        rows="3"
-        :value="routeForm.disposalFiltersText"
-        @input="updateText('disposalFiltersText', $event)"
-      />
+      <p class="field-note" :class="{ warn: selectedRangeCount === 0 }">
+        {{ selectedRangeCount === 0 ? '請先在地圖上選取範圍才能求解' : `節點依地圖上已選取的範圍篩選（已選 ${selectedRangeCount} 個範圍）` }}
+      </p>
 
       <div class="pick-row">
         <button
@@ -283,13 +260,20 @@ const formatStopType = (value) => stopTypeLabels[value] || value
         </button>
       </div>
 
+      <p class="field-note">未選取起訖點時，自動使用最近的清潔隊作為起點與終點</p>
+
       <div class="coord-row">
-        <p>起點：{{ routeForm.startCoord ? routeForm.startCoord.join(', ') : '-' }}</p>
-        <p>終點：{{ routeForm.endCoord ? routeForm.endCoord.join(', ') : '-' }}</p>
+        <p>起點：{{ routeForm.startCoord ? routeForm.startCoord.join(', ') : '自動（最近清潔隊）' }}</p>
+        <p>終點：{{ routeForm.endCoord ? routeForm.endCoord.join(', ') : '自動（最近清潔隊）' }}</p>
       </div>
 
       <div class="action-row">
-        <button class="primary-btn" type="button" :disabled="routeRuntime.loading" @click="emit('solve-route')">
+        <button
+          class="primary-btn"
+          type="button"
+          :disabled="routeRuntime.loading || selectedRangeCount === 0"
+          @click="emit('solve-route')"
+        >
           {{ routeRuntime.loading ? '求解中...' : '求解路線' }}
         </button>
         <button class="secondary-btn" type="button" :disabled="routeRuntime.loading" @click="emit('clear-route')">
@@ -393,8 +377,14 @@ const formatStopType = (value) => stopTypeLabels[value] || value
   width: 100%;
 }
 
-.text-area {
-  resize: vertical;
+.field-note {
+  margin: 0;
+  font-size: 10px;
+  color: #9fc5f8;
+}
+
+.field-note.warn {
+  color: #ffb3ad;
 }
 
 .field-check {

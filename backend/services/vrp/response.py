@@ -9,6 +9,8 @@ def _build_response(
     raw_node_count,
     snapped_node_count,
     aggregated_node_count,
+    start_coord=None,
+    end_coord=None,
 ):
     total_demand_kg = int(round(sum(node["demand_kg"] for node in pickup_nodes)))
     dropped_demand_kg = int(round(sum(node.get("demand_kg", 0) for node in solved["dropped_nodes"])))
@@ -16,6 +18,10 @@ def _build_response(
 
     return {
         "status": "success",
+        "depot": {
+            "start": list(start_coord) if start_coord else None,
+            "end": list(end_coord) if end_coord else None,
+        },
         "summary": {
             "totalDistanceM": solved["total_distance"],
             "totalDurationS": solved["total_duration"],
