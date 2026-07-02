@@ -9,6 +9,9 @@ from backend.services.regions_presentation import (
     make_range_node,  # re-exported for backward compatibility
     range_feature_from_row,
     regions_tree_to_ranges,
+    regions_tree_to_stat_ranges,
+    stat_zone1_rows_to_range_nodes,
+    stat_zone2_rows_to_range_nodes,
     stat_zone_point_feature_from_row,
     stat_zone_rows_to_range_nodes,
 )
@@ -88,58 +91,122 @@ class RegionsService:
             village_rows = conn.execute(
                 "SELECT villcode, countycode, towncode, villname, villeng FROM village ORDER BY villcode"
             ).fetchall()
-            sz_count_rows = conn.execute(
-                "SELECT villcode, COUNT(*) AS cnt FROM stat_zone_village_map GROUP BY villcode"
-            ).fetchall()
         finally:
             conn.close()
 
-        return assemble_regions_tree(county_rows, township_rows, village_rows, sz_count_rows)
+        return assemble_regions_tree(county_rows, township_rows, village_rows)
 
     @lru_cache(maxsize=1)
     def build_ranges_tree(self):
-        return regions_tree_to_ranges(self.build_regions_tree())
-
-    # ── village stat zones ────────────────────────────────────────────────────
-
-    def build_village_stat_zone_ranges(self, village_code):
-        village_code = str(village_code or "").strip()
-        if not village_code:
-            return {"villageCode": "", "ranges": [], "summary": {"statZoneCount": 0}}
+        regions = self.build_regions_tree()
 
         conn = self._connect_bounds()
         try:
-            rows = conn.execute(
-                "SELECT codebase, p_cnt FROM stat_zone_point_cache"
-                " WHERE villcode = ? ORDER BY codebase",
-                (village_code,),
+            sz2_count_rows = conn.execute(
+                "SELECT town_id, COUNT(*) AS cnt FROM stat_zone_2 GROUP BY town_id"
             ).fetchall()
         finally:
             conn.close()
+        sz2_count_by_town = {row["town_id"]: row["cnt"] for row in sz2_count_rows}
 
-        color = self.range_styles.get("stat_zone", "#72e9b7")
-        ranges = stat_zone_rows_to_range_nodes(rows, color, village_code)
+        admin = regions_tree_to_ranges(regions)
+        stat = regions_tree_to_stat_ranges(regions, sz2_count_by_town)
 
         return {
-            "villageCode": village_code,
-            "ranges": ranges,
-            "summary": {"statZoneCount": len(ranges)},
+            "trees": [
+                {"id": "admin", "name": "行政區", "ranges": admin["ranges"]},
+                {"id": "stat", "name": "統計區", "ranges": stat["ranges"]},
+            ],
+            "summary": regions["summary"],
         }
+
+    # ── stat zone tree children (lazy-loaded) ─────────────────────────────────
+
+    def build_stat_zone_children(self, parent_level, parent_code):
+        """Children of a statistical-tree node: township → 二級發布區 →
+        一級發布區 → 最小統計區. Raises ValueError on unknown parent level."""
+        parent_code = str(parent_code or "").strip()
+        base = {"parentLevel": parent_level, "parentCode": parent_code}
+        if not parent_code:
+            return {**base, "ranges": [], "summary": {"count": 0}}
+
+        conn = self._connect_bounds()
+        try:
+            if parent_level == "township":
+                rows = conn.execute(
+                    "SELECT code2 FROM stat_zone_2 WHERE town_id = ? ORDER BY code2",
+                    (parent_code,),
+                ).fetchall()
+                count_rows = conn.execute(
+                    "SELECT code2, COUNT(*) AS cnt FROM stat_zone_1"
+                    " WHERE town_id = ? GROUP BY code2",
+                    (parent_code,),
+                ).fetchall()
+                ranges = stat_zone2_rows_to_range_nodes(
+                    rows,
+                    self.range_styles.get("stat_zone_2", "#a78bfa"),
+                    {row["code2"]: row["cnt"] for row in count_rows},
+                )
+            elif parent_level == "stat_zone_2":
+                rows = conn.execute(
+                    "SELECT code1 FROM stat_zone_1 WHERE code2 = ? ORDER BY code1",
+                    (parent_code,),
+                ).fetchall()
+                count_rows = conn.execute(
+                    "SELECT code1, COUNT(*) AS cnt FROM stat_zone"
+                    " WHERE code2 = ? GROUP BY code1",
+                    (parent_code,),
+                ).fetchall()
+                ranges = stat_zone1_rows_to_range_nodes(
+                    rows,
+                    self.range_styles.get("stat_zone_1", "#34d399"),
+                    {row["code1"]: row["cnt"] for row in count_rows},
+                )
+            elif parent_level == "stat_zone_1":
+                rows = conn.execute(
+                    "SELECT sz.codebase, cache.p_cnt FROM stat_zone AS sz"
+                    " LEFT JOIN stat_zone_point_cache AS cache ON cache.codebase = sz.codebase"
+                    " WHERE sz.code1 = ? ORDER BY sz.codebase",
+                    (parent_code,),
+                ).fetchall()
+                ranges = stat_zone_rows_to_range_nodes(
+                    rows,
+                    self.range_styles.get("stat_zone", "#72e9b7"),
+                    {"parentCode1": parent_code},
+                )
+            else:
+                raise ValueError(f"unsupported parent level: {parent_level}")
+        finally:
+            conn.close()
+
+        return {**base, "ranges": ranges, "summary": {"count": len(ranges)}}
 
     # ── range GeoJSON (requires SpatiaLite) ───────────────────────────────────
 
-    def build_range_geojson(self, county_codes, town_codes, village_codes, stat_zone_codes=None):
+    def build_range_geojson(
+        self,
+        county_codes,
+        town_codes,
+        village_codes,
+        stat_zone_codes=None,
+        stat_zone_1_codes=None,
+        stat_zone_2_codes=None,
+    ):
         stat_zone_codes = split_codes(stat_zone_codes)
+        stat_zone_1_codes = split_codes(stat_zone_1_codes)
+        stat_zone_2_codes = split_codes(stat_zone_2_codes)
 
         conn = self._connect_bounds(load_spatialite=True)
         features = []
         seen = set()
         try:
             for layer, table, code_col, codes in (
-                ("county",            "county",    "countycode", county_codes),
-                ("township",          "township",  "towncode",   town_codes),
-                ("village",           "village",   "villcode",   village_codes),
-                ("stat_zone",         "stat_zone", "codebase",   stat_zone_codes),
+                ("county",            "county",      "countycode", county_codes),
+                ("township",          "township",    "towncode",   town_codes),
+                ("village",           "village",     "villcode",   village_codes),
+                ("stat_zone_2",       "stat_zone_2", "code2",      stat_zone_2_codes),
+                ("stat_zone_1",       "stat_zone_1", "code1",      stat_zone_1_codes),
+                ("stat_zone",         "stat_zone",   "codebase",   stat_zone_codes),
             ):
                 if not codes:
                     continue
@@ -166,18 +233,35 @@ class RegionsService:
     # ── stat zone population ──────────────────────────────────────────────────
 
     def _stat_zone_cache_filter(
-        self, stat_zone_codes, county_codes, town_codes, village_codes
+        self,
+        stat_zone_codes,
+        county_codes,
+        town_codes,
+        village_codes,
+        stat_zone_1_codes=None,
+        stat_zone_2_codes=None,
     ):
         stat_zone_codes = split_codes(stat_zone_codes)
         county_codes = split_codes(county_codes)
         town_codes = split_codes(town_codes)
         village_codes = split_codes(village_codes)
+        stat_zone_1_codes = split_codes(stat_zone_1_codes)
+        stat_zone_2_codes = split_codes(stat_zone_2_codes)
 
         filters, params = [], []
         if stat_zone_codes:
             ph = ",".join("?" * len(stat_zone_codes))
             filters.append(f"codebase IN ({ph})")
             params.extend(stat_zone_codes)
+        # 發布區代碼不在 point cache 上，透過 stat_zone 表換回 codebase。
+        if stat_zone_1_codes:
+            ph = ",".join("?" * len(stat_zone_1_codes))
+            filters.append(f"codebase IN (SELECT codebase FROM stat_zone WHERE code1 IN ({ph}))")
+            params.extend(stat_zone_1_codes)
+        if stat_zone_2_codes:
+            ph = ",".join("?" * len(stat_zone_2_codes))
+            filters.append(f"codebase IN (SELECT codebase FROM stat_zone WHERE code2 IN ({ph}))")
+            params.extend(stat_zone_2_codes)
         if village_codes:
             ph = ",".join("?" * len(village_codes))
             filters.append(f"villcode IN ({ph})")
@@ -201,9 +285,12 @@ class RegionsService:
         county_codes=None,
         town_codes=None,
         village_codes=None,
+        stat_zone_1_codes=None,
+        stat_zone_2_codes=None,
     ):
         extra, params = self._stat_zone_cache_filter(
-            stat_zone_codes, county_codes, town_codes, village_codes
+            stat_zone_codes, county_codes, town_codes, village_codes,
+            stat_zone_1_codes, stat_zone_2_codes,
         )
         conn = self._connect_bounds()
         try:
@@ -225,10 +312,13 @@ class RegionsService:
         county_codes=None,
         town_codes=None,
         village_codes=None,
+        stat_zone_1_codes=None,
+        stat_zone_2_codes=None,
         limit=None,
     ):
         extra, params = self._stat_zone_cache_filter(
-            stat_zone_codes, county_codes, town_codes, village_codes
+            stat_zone_codes, county_codes, town_codes, village_codes,
+            stat_zone_1_codes, stat_zone_2_codes,
         )
         if limit is not None:
             try:

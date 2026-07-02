@@ -18,13 +18,13 @@ const isSidebarCollapsed = ref(false)
 const { basemapState, activeBasemap, setBasemap } = useBasemap()
 const { layerState, toggleLayer, updateLayerStyle } = useLayers(API_BASE_URL)
 const {
-  rangeTree,
+  rangeTrees,
   selectedRangeIds,
   selectedRangeGeoJson,
   rangeNodeLoading,
   selectedRangeRequest,
   toggleRange,
-  loadVillageStatZones
+  loadRangeChildren
 } = useRanges(API_BASE_URL)
 const {
   dataLayerState,
@@ -112,7 +112,7 @@ const handleToggleRouteLayer = (layerKey) => {
     <Sidebar
       :layer-state="layerState"
       :basemap-state="basemapState"
-      :range-tree="rangeTree"
+      :range-trees="rangeTrees"
       :data-layer-state="dataLayerState"
       :data-aggregate="dataAggregate"
       :data-layer-runtime="dataLayerRuntime"
@@ -133,7 +133,7 @@ const handleToggleRouteLayer = (layerKey) => {
       @update-layer-style="updateLayerStyle"
       @set-basemap="setBasemap"
       @toggle-range="toggleRange"
-      @expand-range="loadVillageStatZones"
+      @expand-range="loadRangeChildren"
       @toggle-data-layer="toggleDataLayer"
       @set-data-layer-mode="setDataLayerMode"
       @refresh-data-layer="refreshDataLayerByKey"

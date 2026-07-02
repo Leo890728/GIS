@@ -1,11 +1,11 @@
 <script setup>
-import { computed } from 'vue'
-import { ChevronDown, Minus } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import RangeTreeNode from './RangeTreeNode.vue'
 import { getAllLeafRangeIds } from './rangeTree'
 
 const props = defineProps({
-  rangeTree: {
+  rangeTrees: {
     type: Array,
     required: true
   },
@@ -21,7 +21,27 @@ const props = defineProps({
 
 const emit = defineEmits(['toggle-range', 'expand-range'])
 
-const totalRangeLeafCount = computed(() => getAllLeafRangeIds(props.rangeTree).length)
+const collapsedTrees = ref({})
+
+const toggleTree = (treeId) => {
+  collapsedTrees.value = {
+    ...collapsedTrees.value,
+    [treeId]: !collapsedTrees.value[treeId]
+  }
+}
+
+const selectedSet = computed(() => new Set(props.selectedRangeIds))
+
+const treeSummaries = computed(() =>
+  props.rangeTrees.map((tree) => {
+    const leafIds = getAllLeafRangeIds(tree.ranges)
+    return {
+      total: leafIds.length,
+      selected: leafIds.filter((id) => selectedSet.value.has(id)).length
+    }
+  })
+)
+
 const selectedRangeLeafCount = computed(() => props.selectedRangeIds.length)
 </script>
 
@@ -29,24 +49,31 @@ const selectedRangeLeafCount = computed(() => props.selectedRangeIds.length)
   <section class="ranges-panel">
     <div class="panel-title-row">
       <h3>範圍</h3>
-      <span class="count-badge">{{ selectedRangeLeafCount }} / {{ totalRangeLeafCount }} 已選取</span>
+      <span class="count-badge">{{ selectedRangeLeafCount }} 已選取</span>
     </div>
 
-    <article class="region-card expanded">
+    <article
+      v-for="(tree, index) in rangeTrees"
+      :key="tree.id"
+      class="region-card"
+      :class="{ expanded: !collapsedTrees[tree.id] }"
+    >
       <header class="region-row">
-        <div class="check-box selected">
-          <Minus :size="10" />
-        </div>
-        <div class="region-label-wrap">
-          <p class="region-name">全部範圍</p>
-          <p class="region-meta">{{ selectedRangeLeafCount }}/{{ totalRangeLeafCount }} 已選取</p>
-        </div>
-        <ChevronDown class="caret" :size="14" />
+        <button class="range-label-btn" type="button" @click="toggleTree(tree.id)">
+          <div class="region-label-wrap">
+            <p class="region-name">{{ tree.name }}</p>
+            <p class="region-meta">
+              {{ treeSummaries[index].selected }}/{{ treeSummaries[index].total }} 已選取
+            </p>
+          </div>
+          <ChevronDown v-if="!collapsedTrees[tree.id]" class="caret" :size="14" />
+          <ChevronRight v-else class="caret" :size="14" />
+        </button>
       </header>
 
-      <div class="county-list">
+      <div v-if="!collapsedTrees[tree.id]" class="county-list">
         <RangeTreeNode
-          v-for="range in rangeTree"
+          v-for="range in tree.ranges"
           :key="range.id"
           :node="range"
           :selected-range-ids="selectedRangeIds"

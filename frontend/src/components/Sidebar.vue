@@ -29,7 +29,7 @@ const props = defineProps({
     type: Object,
     required: true
   },
-  rangeTree: {
+  rangeTrees: {
     type: Array,
     required: true
   },
@@ -313,7 +313,7 @@ const drawingTools = [
 
       <RangePanel
         v-else-if="activeMode === 'ranges'"
-        :range-tree="rangeTree"
+        :range-trees="rangeTrees"
         :selected-range-ids="selectedRangeIds"
         :range-node-loading="rangeNodeLoading"
         @toggle-range="emit('toggle-range', $event)"

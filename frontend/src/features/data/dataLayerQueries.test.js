@@ -23,6 +23,8 @@ describe('hasRangeFeatures', () => {
 describe('hasRangeRequestCodes', () => {
   it('is true when any code array is non-empty', () => {
     expect(hasRangeRequestCodes({ townCodes: ['T1'] })).toBe(true)
+    expect(hasRangeRequestCodes({ statZone2Codes: ['A6501-05'] })).toBe(true)
+    expect(hasRangeRequestCodes({ statZone1Codes: ['A6501-05-001'] })).toBe(true)
     expect(hasRangeRequestCodes({ countyCodes: [], villageCodes: [] })).toBe(false)
     expect(hasRangeRequestCodes(null)).toBe(false)
   })

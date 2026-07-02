@@ -24,10 +24,8 @@ def make_range_node(node_id, name, description, color, level, code, children=Non
     }
 
 
-def assemble_regions_tree(county_rows, township_rows, village_rows, sz_count_rows):
+def assemble_regions_tree(county_rows, township_rows, village_rows):
     """Stitch county/township/village rows into the nested regions tree."""
-    sz_count = {row["villcode"]: row["cnt"] for row in sz_count_rows}
-
     counties_by_code = {}
     counties = []
     for row in county_rows:
@@ -60,12 +58,10 @@ def assemble_regions_tree(county_rows, township_rows, village_rows, sz_count_row
         township = townships_by_code.get(row["towncode"])
         if not township:
             continue
-        vcode = row["villcode"] or ""
         township["villages"].append({
-            "villageCode": vcode,
+            "villageCode": row["villcode"] or "",
             "villageName": row["villname"] or "",
             "villageEng": row["villeng"] or "",
-            "statZoneCount": sz_count.get(vcode, 0),
         })
 
     total_townships = sum(len(c["townships"]) for c in counties)
@@ -101,10 +97,7 @@ def regions_tree_to_ranges(regions):
                         "#d17827",
                         "village",
                         vcode,
-                        metadata={
-                            "sourceProperty": "VILLCODE",
-                            "statZoneCount": int(village.get("statZoneCount", 0)),
-                        },
+                        metadata={"sourceProperty": "VILLCODE"},
                     )
                 )
 
@@ -141,8 +134,97 @@ def regions_tree_to_ranges(regions):
     return {"ranges": ranges, "summary": regions["summary"]}
 
 
-def stat_zone_rows_to_range_nodes(rows, color, village_code):
-    """Turn stat_zone_point_cache rows into selectable stat-zone range nodes."""
+def regions_tree_to_stat_ranges(regions, sz2_count_by_town):
+    """Transform the regions tree into the statistical-area tree roots.
+
+    縣市/鄉鎮節點沿用行政區資料，但 id 加上 ``stat-`` 前綴以免與行政區樹
+    的節點互相干擾；鄉鎮以下（二級發布區→一級發布區→最小統計區）數量龐大，
+    只放 lazy-load 標記（metadata.childLevel / childCount），由前端展開時再載入。
+    """
+    ranges = []
+
+    for county in regions["counties"]:
+        township_nodes = []
+        for town in county.get("townships", []):
+            tcode = town.get("townCode", "")
+            if not tcode:
+                continue
+            township_nodes.append(
+                make_range_node(
+                    f"stat-township-{tcode}",
+                    town.get("townName", ""),
+                    town.get("townEng", ""),
+                    "#27a693",
+                    "township",
+                    tcode,
+                    metadata={
+                        "sourceProperty": "TOWNCODE",
+                        "childLevel": "stat_zone_2",
+                        "childCount": int(sz2_count_by_town.get(tcode, 0)),
+                    },
+                )
+            )
+
+        if not county.get("countyCode"):
+            continue
+        ranges.append(
+            make_range_node(
+                f"stat-county-{county['countyCode']}",
+                county.get("countyName", ""),
+                county.get("countyEng", ""),
+                "#7fb3ff",
+                "county",
+                county["countyCode"],
+                children=township_nodes,
+                metadata={"sourceProperty": "COUNTYCODE"},
+            )
+        )
+
+    return {"ranges": ranges, "summary": regions["summary"]}
+
+
+def stat_zone2_rows_to_range_nodes(rows, color, sz1_count_by_code2):
+    """Turn stat_zone_2 rows into lazy 二級發布區 range nodes."""
+    return [
+        make_range_node(
+            f"stat_zone_2-{row['code2']}",
+            row["code2"],
+            "",
+            color,
+            "stat_zone_2",
+            row["code2"],
+            metadata={
+                "sourceProperty": "CODE2",
+                "childLevel": "stat_zone_1",
+                "childCount": int(sz1_count_by_code2.get(row["code2"], 0)),
+            },
+        )
+        for row in rows
+    ]
+
+
+def stat_zone1_rows_to_range_nodes(rows, color, sz_count_by_code1):
+    """Turn stat_zone_1 rows into lazy 一級發布區 range nodes."""
+    return [
+        make_range_node(
+            f"stat_zone_1-{row['code1']}",
+            row["code1"],
+            "",
+            color,
+            "stat_zone_1",
+            row["code1"],
+            metadata={
+                "sourceProperty": "CODE1",
+                "childLevel": "stat_zone",
+                "childCount": int(sz_count_by_code1.get(row["code1"], 0)),
+            },
+        )
+        for row in rows
+    ]
+
+
+def stat_zone_rows_to_range_nodes(rows, color, parent_metadata=None):
+    """Turn stat-zone rows (codebase + p_cnt) into selectable leaf range nodes."""
     ranges = []
     for row in rows:
         codebase = row["codebase"]
@@ -163,8 +245,8 @@ def stat_zone_rows_to_range_nodes(rows, color, village_code):
                 codebase,
                 metadata={
                     "sourceProperty": "CODEBASE",
-                    "parentVillageCode": village_code,
                     "pCnt": population,
+                    **(parent_metadata or {}),
                 },
             )
         )

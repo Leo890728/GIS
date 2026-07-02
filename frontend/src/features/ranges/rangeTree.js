@@ -50,37 +50,37 @@ export const isRangePartiallySelected = (range, selectedSet) => {
   return selectedCount > 0 && !isRangeFullySelected(range, selectedSet)
 }
 
+// range node level → request payload key
+const LEVEL_CODE_KEYS = {
+  county: 'countyCodes',
+  township: 'townCodes',
+  village: 'villageCodes',
+  stat_zone_2: 'statZone2Codes',
+  stat_zone_1: 'statZone1Codes',
+  stat_zone: 'statZoneCodes'
+}
+
 export const buildRangeRequest = (rangeTree, selectedRangeIds) => {
   const selectedSet = new Set(selectedRangeIds)
-  const countyCodes = []
-  const townCodes = []
-  const villageCodes = []
-  const statZoneCodes = []
+  const request = {
+    countyCodes: [],
+    townCodes: [],
+    villageCodes: [],
+    statZone2Codes: [],
+    statZone1Codes: [],
+    statZoneCodes: []
+  }
 
   const collect = (node) => {
     if (!node?.id) return
-    const children = getRangeChildren(node)
 
-    if (isRangeFullySelected(node, selectedSet)) {
-      if (node.level === 'county') {
-        countyCodes.push(node.code)
-        return
-      }
-      if (node.level === 'township') {
-        townCodes.push(node.code)
-        return
-      }
-      if (node.level === 'village') {
-        villageCodes.push(node.code)
-        return
-      }
-      if (node.level === 'stat_zone') {
-        statZoneCodes.push(node.code)
-        return
-      }
+    const codeKey = LEVEL_CODE_KEYS[node.level]
+    if (codeKey && node.code && isRangeFullySelected(node, selectedSet)) {
+      request[codeKey].push(node.code)
+      return
     }
 
-    for (const child of children) {
+    for (const child of getRangeChildren(node)) {
       collect(child)
     }
   }
@@ -89,10 +89,5 @@ export const buildRangeRequest = (rangeTree, selectedRangeIds) => {
     collect(node)
   }
 
-  return {
-    countyCodes: countyCodes.filter(Boolean),
-    townCodes: townCodes.filter(Boolean),
-    villageCodes: villageCodes.filter(Boolean),
-    statZoneCodes: statZoneCodes.filter(Boolean)
-  }
+  return request
 }

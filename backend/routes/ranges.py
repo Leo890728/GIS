@@ -1,4 +1,4 @@
-from flask import Blueprint, current_app, request
+from flask import Blueprint, abort, current_app, request
 
 from backend.services.regions_service import split_codes
 
@@ -12,27 +12,29 @@ def ranges_tree():
     return regions_service.build_ranges_tree()
 
 
-@bp.get("/ranges/village/<village_code>/stat-zones")
-def village_stat_zones(village_code):
+@bp.get("/ranges/stat-zones/<parent_level>/<parent_code>/children")
+def stat_zone_children(parent_level, parent_code):
     regions_service = current_app.config["REGIONS_SERVICE"]
-    return regions_service.build_village_stat_zone_ranges(village_code)
+    try:
+        return regions_service.build_stat_zone_children(parent_level, parent_code)
+    except ValueError as err:
+        abort(400, description=str(err))
 
 
 @bp.route("/regions/range-geojson", methods=["GET", "POST"])
 def range_geojson():
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
-        county_codes = split_codes(payload.get("countyCodes"))
-        town_codes = split_codes(payload.get("townCodes"))
-        village_codes = split_codes(payload.get("villageCodes"))
-        stat_zone_codes = split_codes(payload.get("statZoneCodes") or payload.get("statZoneMinCodes"))
+        source = payload.get
     else:
-        county_codes = split_codes(request.args.get("countyCodes"))
-        town_codes = split_codes(request.args.get("townCodes"))
-        village_codes = split_codes(request.args.get("villageCodes"))
-        stat_zone_codes = split_codes(
-            request.args.get("statZoneCodes") or request.args.get("statZoneMinCodes")
-        )
+        source = request.args.get
+
+    county_codes = split_codes(source("countyCodes"))
+    town_codes = split_codes(source("townCodes"))
+    village_codes = split_codes(source("villageCodes"))
+    stat_zone_codes = split_codes(source("statZoneCodes") or source("statZoneMinCodes"))
+    stat_zone_1_codes = split_codes(source("statZone1Codes"))
+    stat_zone_2_codes = split_codes(source("statZone2Codes"))
 
     regions_service = current_app.config["REGIONS_SERVICE"]
     return regions_service.build_range_geojson(
@@ -40,4 +42,6 @@ def range_geojson():
         town_codes,
         village_codes,
         stat_zone_codes,
+        stat_zone_1_codes,
+        stat_zone_2_codes,
     )

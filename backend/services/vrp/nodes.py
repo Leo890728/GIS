@@ -15,6 +15,8 @@ def _build_codes(range_payload):
         "town_codes": split_codes(range_payload.get("townCodes")),
         "village_codes": split_codes(range_payload.get("villageCodes")),
         "stat_zone_codes": split_codes(range_payload.get("statZoneCodes") or range_payload.get("statZoneMinCodes")),
+        "stat_zone_1_codes": split_codes(range_payload.get("statZone1Codes")),
+        "stat_zone_2_codes": split_codes(range_payload.get("statZone2Codes")),
     }
 
 
@@ -34,6 +36,8 @@ def _build_range_geojson(range_payload, regions_service):
         codes["town_codes"],
         codes["village_codes"],
         codes["stat_zone_codes"],
+        codes["stat_zone_1_codes"],
+        codes["stat_zone_2_codes"],
     )
 
 
@@ -93,6 +97,8 @@ def _collect_preset_nodes(node_source, range_payload, range_geojson, regions_ser
         county_codes=codes["county_codes"],
         town_codes=codes["town_codes"],
         village_codes=codes["village_codes"],
+        stat_zone_1_codes=codes["stat_zone_1_codes"],
+        stat_zone_2_codes=codes["stat_zone_2_codes"],
         limit=node_source.get("limit"),
     )
 

@@ -24,6 +24,12 @@ const props = defineProps({
 
 const emit = defineEmits(['toggle-range', 'expand-range'])
 
+const CHILD_LEVEL_LABELS = {
+  stat_zone_2: '二級發布區',
+  stat_zone_1: '一級發布區',
+  stat_zone: '最小統計區'
+}
+
 const expanded = ref(false)
 const selectedSet = computed(() => new Set(props.selectedRangeIds))
 const children = computed(() => getRangeChildren(props.node))
@@ -31,29 +37,30 @@ const leafIds = computed(() => getLeafRangeIds(props.node))
 const selectedLeafCount = computed(() => leafIds.value.filter((id) => selectedSet.value.has(id)).length)
 const isFullySelected = computed(() => leafIds.value.length > 0 && leafIds.value.every((id) => selectedSet.value.has(id)))
 const isPartiallySelected = computed(() => selectedLeafCount.value > 0 && !isFullySelected.value)
-const hasLazyStatZoneChildren = computed(
-  () => props.node.level === 'village' && Number(props.node?.metadata?.statZoneCount || 0) > 0
+const lazyChildLevel = computed(() => props.node?.metadata?.childLevel || '')
+const lazyChildCount = computed(() => Number(props.node?.metadata?.childCount || 0))
+const hasLazyChildren = computed(
+  () => lazyChildLevel.value !== '' && lazyChildCount.value > 0 && props.node?.metadata?.childrenLoaded !== true
 )
-const hasChildren = computed(() => children.value.length > 0 || hasLazyStatZoneChildren.value)
-const statZoneCount = computed(() => Number(props.node?.metadata?.statZoneCount || 0))
+const hasChildren = computed(() => children.value.length > 0 || hasLazyChildren.value)
 const isLoadingChildren = computed(() => props.rangeNodeLoading?.[props.node.id] === true)
 
 const rangeMeta = computed(() => {
+  if (lazyChildLevel.value) {
+    return `${lazyChildCount.value} 個${CHILD_LEVEL_LABELS[lazyChildLevel.value] || '子範圍'}`
+  }
   if (props.node.level === 'county') {
     return `${children.value.length} 個鄉鎮市區`
   }
   if (props.node.level === 'township') {
     return `${children.value.length} 個村里`
   }
-  if (props.node.level === 'village') {
-    return `${statZoneCount.value} 個統計區`
-  }
   return `${selectedLeafCount.value}/${leafIds.value.length} 已選取`
 })
 
 const leafMeta = computed(() => {
-  if (props.node.level === 'village') {
-    return `${statZoneCount.value} 個統計區`
+  if (props.node.level === 'stat_zone' && props.node.description) {
+    return props.node.description
   }
   return props.node.code || '無代碼'
 })
@@ -73,12 +80,7 @@ const toggleExpand = () => {
   const nextExpanded = !expanded.value
   expanded.value = nextExpanded
 
-  if (
-    nextExpanded &&
-    props.node.level === 'village' &&
-    hasLazyStatZoneChildren.value &&
-    props.node?.metadata?.statZoneLoaded !== true
-  ) {
+  if (nextExpanded && hasLazyChildren.value) {
     emit('expand-range', props.node.id)
   }
 }
@@ -107,7 +109,7 @@ const toggleExpand = () => {
         <span class="range-color-dot" :style="{ backgroundColor: node.color }"></span>
         <div class="region-label-wrap">
           <p class="region-name" :class="{ sub: depth > 0 }">{{ node.name }}</p>
-          <p class="region-meta">{{ isLoadingChildren ? '載入統計區中...' : rangeMeta }}</p>
+          <p class="region-meta">{{ isLoadingChildren ? '載入中...' : rangeMeta }}</p>
         </div>
         <ChevronDown v-if="expanded" class="caret" :size="14" />
         <ChevronRight v-else class="caret" :size="14" />

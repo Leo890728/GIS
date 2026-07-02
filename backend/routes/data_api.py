@@ -110,6 +110,8 @@ def data_admin_aggregate():
             county_codes=county_codes,
             town_codes=town_codes,
             village_codes=village_codes,
+            stat_zone_1_codes=payload.get("statZone1Codes"),
+            stat_zone_2_codes=payload.get("statZone2Codes"),
         )
     except ValueError as err:
         abort(400, description=str(err))
@@ -129,6 +131,8 @@ def data_admin_stat_zone_points():
             county_codes=county_codes,
             town_codes=town_codes,
             village_codes=village_codes,
+            stat_zone_1_codes=split_codes(payload.get("statZone1Codes")),
+            stat_zone_2_codes=split_codes(payload.get("statZone2Codes")),
             limit=payload.get("limit"),
         )
     except ValueError as err:

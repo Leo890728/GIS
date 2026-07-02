@@ -6,10 +6,12 @@ export const fetchRangeTree = async (apiBaseUrl) => {
   return response.json()
 }
 
-export const fetchVillageStatZoneRanges = async (apiBaseUrl, villageCode) => {
-  const response = await fetch(`${apiBaseUrl}/ranges/village/${encodeURIComponent(villageCode)}/stat-zones`)
+export const fetchStatZoneChildren = async (apiBaseUrl, parentLevel, parentCode) => {
+  const response = await fetch(
+    `${apiBaseUrl}/ranges/stat-zones/${encodeURIComponent(parentLevel)}/${encodeURIComponent(parentCode)}/children`
+  )
   if (!response.ok) {
-    throw new Error(`載入村里統計區失敗：${response.status}`)
+    throw new Error(`載入統計區子節點失敗：${response.status}`)
   }
   return response.json()
 }

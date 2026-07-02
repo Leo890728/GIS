@@ -252,6 +252,8 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
         countyCodes: selectedRangeRequest.countyCodes || [],
         townCodes: selectedRangeRequest.townCodes || [],
         villageCodes: selectedRangeRequest.villageCodes || [],
+        statZone2Codes: selectedRangeRequest.statZone2Codes || [],
+        statZone1Codes: selectedRangeRequest.statZone1Codes || [],
         statZoneCodes: selectedRangeRequest.statZoneCodes || []
       }
       if (hasFeatures(selectedRangeGeoJsonRef?.value)) {

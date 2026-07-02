@@ -138,36 +138,58 @@ class SmokeApiTestCase(unittest.TestCase):
         response = self.client.get("/ranges/tree")
         response_json = response.get_json()
         self.assertEqual(200, response.status_code)
-        self.assertIn("ranges", response_json)
         self.assertIn("summary", response_json)
+        trees = response_json.get("trees", [])
+        self.assertEqual(["admin", "stat"], [tree.get("id") for tree in trees])
+        for tree in trees:
+            self.assertIn("ranges", tree)
 
-    def test_village_stat_zone_ranges(self):
+    def test_stat_zone_children_chain(self):
         tree_response = self.client.get("/ranges/tree")
         self.assertEqual(200, tree_response.status_code)
-        tree = tree_response.get_json()
+        trees = tree_response.get_json().get("trees", [])
+        stat_tree = next((tree for tree in trees if tree.get("id") == "stat"), {})
 
-        village_code = None
-        for county in tree.get("ranges", []):
+        town_code = None
+        for county in stat_tree.get("ranges", []):
             for township in county.get("children", []):
-                for village in township.get("children", []):
-                    if int(village.get("metadata", {}).get("statZoneCount", 0)) > 0:
-                        village_code = village.get("code")
-                        break
-                if village_code:
+                if int(township.get("metadata", {}).get("childCount", 0)) > 0:
+                    town_code = township.get("code")
                     break
-            if village_code:
+            if town_code:
                 break
 
-        if village_code is None:
-            self.skipTest("No village with stat zone metadata in fixture")
-        response = self.client.get(f"/ranges/village/{village_code}/stat-zones")
+        if town_code is None:
+            self.skipTest("No township with stat zone metadata in fixture")
+
+        # 區 → 二級發布區
+        response = self.client.get(f"/ranges/stat-zones/township/{town_code}/children")
         self.assertEqual(200, response.status_code)
         payload = response.get_json()
-        self.assertEqual(village_code, payload.get("villageCode"))
-        self.assertIn("ranges", payload)
         self.assertGreater(len(payload.get("ranges", [])), 0)
-        first = payload["ranges"][0]
-        self.assertEqual("stat_zone", first.get("level"))
+        sz2 = payload["ranges"][0]
+        self.assertEqual("stat_zone_2", sz2.get("level"))
+        self.assertEqual("stat_zone_1", sz2.get("metadata", {}).get("childLevel"))
+
+        # 二級發布區 → 一級發布區
+        response = self.client.get(f"/ranges/stat-zones/stat_zone_2/{sz2['code']}/children")
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertGreater(len(payload.get("ranges", [])), 0)
+        sz1 = payload["ranges"][0]
+        self.assertEqual("stat_zone_1", sz1.get("level"))
+        self.assertEqual("stat_zone", sz1.get("metadata", {}).get("childLevel"))
+
+        # 一級發布區 → 最小統計區
+        response = self.client.get(f"/ranges/stat-zones/stat_zone_1/{sz1['code']}/children")
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertGreater(len(payload.get("ranges", [])), 0)
+        self.assertEqual("stat_zone", payload["ranges"][0].get("level"))
+
+    def test_stat_zone_children_rejects_unknown_level(self):
+        response = self.client.get("/ranges/stat-zones/nope/123/children")
+        self.assertEqual(400, response.status_code)
 
     def test_tiles_endpoint(self):
         response = self.client.get("/tiles/__missing__/0/0/0.pbf")

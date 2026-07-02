@@ -9,7 +9,7 @@ export const hasRangeFeatures = (geojson) =>
 
 export const hasRangeRequestCodes = (request) => {
   if (!request || typeof request !== 'object') return false
-  return ['countyCodes', 'townCodes', 'villageCodes', 'statZoneCodes'].some((key) => {
+  return ['countyCodes', 'townCodes', 'villageCodes', 'statZone2Codes', 'statZone1Codes', 'statZoneCodes'].some((key) => {
     const value = request[key]
     return Array.isArray(value) && value.length > 0
   })
