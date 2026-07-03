@@ -2,7 +2,7 @@ import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { fetchHistoryFrames, fetchHistoryRange } from './simulatorApi'
 import { deriveSessionSegments, toMs } from './playbackTimeline'
 import { bearingToTruckIconSuffix, buildRouteHeatGeoJson, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
-import { activePropertiesAt, interpolateSegmentsAt, remainingCoords, traveledCoords } from './trackInterpolation'
+import { activePropertiesAt, interpolateSegmentsAt, pathIndexAt, remainingCoords, traveledCoords } from './trackInterpolation'
 import { getVehicleColor } from '../route/useRoutePlanner'
 import { useFrameRenderer } from './useFrameRenderer'
 import { useSmoothRenderer } from './useSmoothRenderer'
@@ -99,11 +99,17 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     routeSimProgress.value = {}
   }
 
-  const renderRoutePlan = (ms) => {
+  // The traveled/remaining split lines carry the full road geometry, so every
+  // reassignment costs a MapLibre setData (reparse + GPU upload) of thousands
+  // of vertices per vehicle. Their shape only changes when some vehicle crosses
+  // a geometry vertex, so rebuilds are gated on that signature; the interpolated
+  // vehicle points still move every frame. `forceLines` (seeks, selection,
+  // periodic refresh) bypasses the gate so the line tips re-attach to the trucks.
+  let lastLineSignature = null
+
+  const renderRoutePlan = (ms, forceLines = true) => {
     const features = []
-    const traveledFeatures = []
-    const remainingFeatures = []
-    const progress = {}
+    let lineSignature = ''
     for (const track of routePlanTracks) {
       // Clamp to the endpoints so vehicles wait at the depot before departure
       // and rest at the end depot after finishing, instead of disappearing.
@@ -120,31 +126,42 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
         },
         geometry: { type: 'Point', coordinates: position }
       })
-      const traveled = traveledCoords(path, ms)
-      if (traveled.length >= 2) {
-        traveledFeatures.push({
-          type: 'Feature',
-          properties: { ...track.properties },
-          geometry: { type: 'LineString', coordinates: traveled }
-        })
-      }
-      const remaining = remainingCoords(path, ms)
-      if (remaining.length >= 2) {
-        remainingFeatures.push({
-          type: 'Feature',
-          properties: { ...track.properties },
-          geometry: { type: 'LineString', coordinates: remaining }
-        })
-      }
-      progress[track.properties.vehicleId] = {
-        visitedStops: track.stopTimesMs.filter((tMs) => tMs <= ms).length
-      }
+      lineSignature += `${track.key}:${pathIndexAt(path, ms)}|`
     }
     routeSimGeoJson.value = { type: 'FeatureCollection', features }
-    routeSimTraveledGeoJson.value = { type: 'FeatureCollection', features: traveledFeatures }
-    routeSimRemainingGeoJson.value = { type: 'FeatureCollection', features: remainingFeatures }
-    routeSimProgress.value = progress
-    state.featureCount = features.length
+    if (state.featureCount !== features.length) state.featureCount = features.length
+
+    if (forceLines || lineSignature !== lastLineSignature) {
+      lastLineSignature = lineSignature
+      const traveledFeatures = []
+      const remainingFeatures = []
+      const progress = {}
+      for (const track of routePlanTracks) {
+        const path = track.segments[0]?.path || []
+        const traveled = traveledCoords(path, ms)
+        if (traveled.length >= 2) {
+          traveledFeatures.push({
+            type: 'Feature',
+            properties: { ...track.properties },
+            geometry: { type: 'LineString', coordinates: traveled }
+          })
+        }
+        const remaining = remainingCoords(path, ms)
+        if (remaining.length >= 2) {
+          remainingFeatures.push({
+            type: 'Feature',
+            properties: { ...track.properties },
+            geometry: { type: 'LineString', coordinates: remaining }
+          })
+        }
+        progress[track.properties.vehicleId] = {
+          visitedStops: track.stopTimesMs.filter((tMs) => tMs <= ms).length
+        }
+      }
+      routeSimTraveledGeoJson.value = { type: 'FeatureCollection', features: traveledFeatures }
+      routeSimRemainingGeoJson.value = { type: 'FeatureCollection', features: remainingFeatures }
+      routeSimProgress.value = progress
+    }
     // Keep the selection ring pinned to the selected vehicle as it moves, and
     // recenter the camera when auto-follow is on.
     if (state.selected?.key != null) {
@@ -180,16 +197,25 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
         tMs: sample.tMs,
         name: sample.properties.stopName,
         type: sample.properties.stopType,
-        loadKg: sample.properties.loadKg
+        loadKg: sample.properties.loadKg,
+        instructions: sample.properties.instructions || []
       }))
     }
   })
 
-  // Same ~25fps cap the smooth renderer uses during continuous play.
+  // Same ~60fps cap the smooth renderer uses during continuous play. During
+  // play the heavy split lines only rebuild on vertex crossings (see
+  // renderRoutePlan), plus a ~5Hz forced refresh so the line tips never trail
+  // visibly on long straight segments with sparse vertices.
+  let lastLineForceReal = 0
   const renderRoutePlanTick = (ms, realNow = null) => {
     if (realNow != null) {
-      if (realNow - lastRoutePlanRenderReal < 40) return
+      if (realNow - lastRoutePlanRenderReal < 16) return
       lastRoutePlanRenderReal = realNow
+      const forceLines = realNow - lastLineForceReal >= 200
+      if (forceLines) lastLineForceReal = realNow
+      renderRoutePlan(ms, forceLines)
+      return
     }
     renderRoutePlan(ms)
   }
@@ -241,6 +267,16 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     lastTickReal = null
   }
 
+  // The map renders straight from the precise clock (`clockMs`, a plain
+  // variable), while the reactive mirror `state.currentTime` — which re-renders
+  // every component showing the clock (control bar, panel, drawer) — is only
+  // written ~10x/s during play. Seeks/pauses write it directly, and the tick
+  // resyncs `clockMs` whenever an external write is detected, so paused reads
+  // are always exact.
+  let clockMs = null
+  let lastWrittenClock = null
+  let lastClockWriteReal = 0
+
   const tick = (nowReal) => {
     if (!state.playing) {
       stopRaf()
@@ -250,15 +286,26 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     const deltaReal = nowReal - lastTickReal
     lastTickReal = nowReal
 
-    const next = state.currentTime + deltaReal * state.speed
+    // A seek during play (control bar, shortcuts) wrote state.currentTime
+    // directly; adopt it as the new clock origin.
+    if (state.currentTime !== lastWrittenClock) clockMs = state.currentTime
+
+    const next = clockMs + deltaReal * state.speed
     if (next >= state.playTo) {
+      clockMs = state.playTo
+      lastWrittenClock = state.playTo
       state.currentTime = state.playTo
       renderCurrent()
       pause()
       return
     }
-    state.currentTime = next
-    renderAt(state.currentTime, { realNow: nowReal })
+    clockMs = next
+    renderAt(next, { realNow: nowReal })
+    if (nowReal - lastClockWriteReal >= 100) {
+      lastClockWriteReal = nowReal
+      lastWrittenClock = next
+      state.currentTime = next
+    }
     rafId = requestAnimationFrame(tick)
   }
 
@@ -266,12 +313,20 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!state.active || state.currentTime == null) return
     live.exitLive()
     if (state.currentTime >= state.playTo) state.currentTime = state.playFrom
+    clockMs = state.currentTime
+    lastWrittenClock = state.currentTime
     state.playing = true
     lastTickReal = null
     rafId = requestAnimationFrame(tick)
   }
 
   const pause = () => {
+    // Flush the precise clock so anything reading currentTime while paused
+    // (step buttons, drawer, control bar) sees exactly where playback stopped.
+    if (state.playing && clockMs != null && state.currentTime !== clockMs) {
+      lastWrittenClock = clockMs
+      state.currentTime = clockMs
+    }
     state.playing = false
     stopRaf()
   }

@@ -3,6 +3,8 @@
 // `{ key, properties, segments: [{ path: [{ tMs, lng, lat }] }], samples }`
 // so the existing interpolation helpers drive the animation as-is.
 
+import { pathIndexAt } from './trackInterpolation'
+
 // Planar approximation is fine at city scale (matches services elsewhere).
 const distanceM = (a, b) => {
   const midLatRad = (((a[1] + b[1]) / 2) * Math.PI) / 180
@@ -130,7 +132,8 @@ const buildVehicleTrack = (route, vehicleColor, baseMs) => {
           vehicleColor,
           stopName: stop.name || stop.location_id || '',
           stopType: stop.type || '',
-          loadKg: stop.load_kg || 0
+          loadKg: stop.load_kg || 0,
+          instructions: Array.isArray(stop.instructions) ? stop.instructions : []
         }
       }))
     : []
@@ -149,8 +152,7 @@ const buildVehicleTrack = (route, vehicleColor, baseMs) => {
 // steady while a vehicle services a stop.
 export const pathBearingAt = (path, ms) => {
   if (!Array.isArray(path) || path.length < 2) return 0
-  let i = 0
-  while (i < path.length - 2 && path[i + 1].tMs <= ms) i += 1
+  const i = Math.min(pathIndexAt(path, ms), path.length - 2)
   let from = path[i]
   let to = path[i + 1]
   let forward = i + 1

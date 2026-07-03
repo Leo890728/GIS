@@ -2,6 +2,20 @@
 // network access lives here, so each function is deterministic and unit-testable
 // in isolation. Paths/segments use vertices shaped `{ tMs, lng, lat }`.
 
+// Greatest index `i` with `path[i].tMs <= ms` (0 when `ms` precedes the path).
+// Paths are time-sorted, so binary search keeps the per-frame lookups O(log n)
+// on the multi-thousand-vertex OSRM geometries instead of scanning from zero.
+export const pathIndexAt = (path, ms) => {
+  let lo = 0
+  let hi = path.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (path[mid].tMs <= ms) lo = mid
+    else hi = mid - 1
+  }
+  return lo
+}
+
 // Linearly interpolate a position within one timestamped path at instant `ms`.
 // Clamps to the endpoints outside the path's time span.
 export const interpolateInPath = (path, ms) => {
@@ -9,16 +23,12 @@ export const interpolateInPath = (path, ms) => {
   if (ms <= path[0].tMs) return [path[0].lng, path[0].lat]
   const last = path[path.length - 1]
   if (ms >= last.tMs) return [last.lng, last.lat]
-  for (let i = 0; i < path.length - 1; i += 1) {
-    const a = path[i]
-    const b = path[i + 1]
-    if (ms >= a.tMs && ms <= b.tMs) {
-      const span = b.tMs - a.tMs
-      const f = span > 0 ? (ms - a.tMs) / span : 0
-      return [a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f]
-    }
-  }
-  return [last.lng, last.lat]
+  const i = pathIndexAt(path, ms)
+  const a = path[i]
+  const b = path[i + 1]
+  const span = b.tMs - a.tMs
+  const f = span > 0 ? (ms - a.tMs) / span : 0
+  return [a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f]
 }
 
 // Segment-aware: interpolate within a segment; during a between-segment gap
@@ -60,12 +70,7 @@ export const isWithinTrackSegment = (segments, ms) => {
 // interpolated) for surfacing per-capture attributes during playback.
 export const activePropertiesAt = (samples, ms) => {
   if (!samples || !samples.length) return {}
-  let chosen = samples[0].properties
-  for (const sample of samples) {
-    if (sample.tMs <= ms) chosen = sample.properties
-    else break
-  }
-  return chosen
+  return samples[pathIndexAt(samples, ms)].properties
 }
 
 // Normalize a track's segments to [{ path: [{ tMs, lng, lat }] }]. Accepts both
@@ -144,19 +149,14 @@ export const remainingCoords = (path, ms) => {
   if (path.length < 2) return []
   if (ms <= path[0].tMs) return path.map((point) => [point.lng, point.lat])
   if (ms >= path[path.length - 1].tMs) return []
-  const coords = []
-  for (let i = 1; i < path.length; i += 1) {
-    if (path[i].tMs > ms) {
-      const a = path[i - 1]
-      const b = path[i]
-      const span = b.tMs - a.tMs
-      const f = span > 0 ? (ms - a.tMs) / span : 0
-      coords.push([a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f])
-      for (let j = i; j < path.length; j += 1) {
-        coords.push([path[j].lng, path[j].lat])
-      }
-      break
-    }
+  const i = pathIndexAt(path, ms)
+  const a = path[i]
+  const b = path[i + 1]
+  const span = b.tMs - a.tMs
+  const f = span > 0 ? (ms - a.tMs) / span : 0
+  const coords = [[a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f]]
+  for (let j = i + 1; j < path.length; j += 1) {
+    coords.push([path[j].lng, path[j].lat])
   }
   return coords
 }
@@ -166,18 +166,17 @@ export const remainingCoords = (path, ms) => {
 // under the moving vehicle.
 export const traveledCoords = (path, ms) => {
   if (path.length < 2 || ms <= path[0].tMs) return []
+  const i = pathIndexAt(path, ms)
   const coords = []
-  for (let i = 0; i < path.length; i += 1) {
-    if (path[i].tMs <= ms) {
-      coords.push([path[i].lng, path[i].lat])
-    } else {
-      const a = path[i - 1]
-      const b = path[i]
-      const span = b.tMs - a.tMs
-      const f = span > 0 ? (ms - a.tMs) / span : 0
-      coords.push([a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f])
-      break
-    }
+  for (let j = 0; j <= i; j += 1) {
+    coords.push([path[j].lng, path[j].lat])
+  }
+  if (i < path.length - 1) {
+    const a = path[i]
+    const b = path[i + 1]
+    const span = b.tMs - a.tMs
+    const f = span > 0 ? (ms - a.tMs) / span : 0
+    coords.push([a.lng + (b.lng - a.lng) * f, a.lat + (b.lat - a.lat) * f])
   }
   return coords
 }

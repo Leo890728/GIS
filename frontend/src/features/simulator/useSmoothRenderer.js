@@ -2,8 +2,8 @@ import { applyDataStyleHandler } from '../data/styleHandlers'
 import { streamHistoryTrack } from './simulatorApi'
 import { activePropertiesAt, interpolateSegmentsAt, isWithinTrackSegment, normalizeSmoothTracks } from './trackInterpolation'
 
-// ~25fps cap for the between-capture interpolated render during continuous play.
-const SMOOTH_RENDER_INTERVAL_MS = 40
+// ~60fps cap for the between-capture interpolated render during continuous play.
+const SMOOTH_RENDER_INTERVAL_MS = 16
 
 // Smooth (OSRM road-following) rendering strategy: streams per-entity tracks
 // once, then interpolates each entity's position at the clock instant. Owns the
@@ -45,7 +45,7 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     }
     const styled = applyDataStyleHandler({ type: 'FeatureCollection', features }, getLayerEntry())
     dataLayers.setSimulatorGeoJson(styled)
-    state.featureCount = features.length
+    if (state.featureCount !== features.length) state.featureCount = features.length
     syncSelectedPosition(features)
   }
 

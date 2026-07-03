@@ -59,7 +59,8 @@ def _fetch_osrm_nearest(osrm_base_url, profile, coordinate):
 
 def _build_osrm_route_url(osrm_base_url, profile, coordinates):
     coord_part = ";".join([f"{lng:.7f},{lat:.7f}" for lng, lat in coordinates])
-    query_part = "overview=full&geometries=geojson&steps=false"
+    # steps=true 讓每個 leg 帶回 maneuver/道路名，用來產生逐步導航指示。
+    query_part = "overview=full&geometries=geojson&steps=true"
     return f"{osrm_base_url.rstrip('/')}/route/v1/{profile}/{coord_part}?{query_part}"
 
 
@@ -79,7 +80,7 @@ def _fetch_osrm_route(osrm_base_url, profile, coordinates):
     params = {
         "overview": "full",
         "geometries": "geojson",
-        "steps": "false",
+        "steps": "true",
     }
 
     with httpx.Client(timeout=OSRM_TIMEOUT_SECONDS) as client:

@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { LocateFixed, X } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -22,10 +22,31 @@ const emit = defineEmits(['close', 'seek', 'toggle-follow'])
 const stops = computed(() => props.vehicle?.stops || [])
 const isFollowing = computed(() => props.simulatorState.autoFollow === true)
 
+// `state.currentTime` advances on every rAF (60–120Hz); re-rendering the drawer
+// at that rate is wasted work while it competes with the map's render loop.
+// Mirror the clock into a ~10Hz trailing-throttled ref and derive everything
+// time-dependent from it, so the drawer settles on the latest value after
+// seeks/pauses without ticking at full rAF rate.
+const displayTime = ref(props.simulatorState.currentTime ?? 0)
+let displayTimer = null
+watch(
+  () => props.simulatorState.currentTime,
+  () => {
+    if (displayTimer) return
+    displayTimer = setTimeout(() => {
+      displayTimer = null
+      displayTime.value = props.simulatorState.currentTime ?? 0
+    }, 100)
+  }
+)
+onBeforeUnmount(() => {
+  if (displayTimer) clearTimeout(displayTimer)
+})
+
 // Index of the last stop already reached at the playback clock (-1 = still en
 // route to the first stop). Load is a step function of this index.
 const reachedIndex = computed(() => {
-  const now = props.simulatorState.currentTime ?? 0
+  const now = displayTime.value
   let index = -1
   for (const [i, stop] of stops.value.entries()) {
     if (stop.tMs <= now) index = i
@@ -58,6 +79,76 @@ const fmtTime = (ms) => {
   if (Number.isNaN(d.getTime())) return '--'
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
+
+const fmtMeters = (meters) => {
+  if (typeof meters !== 'number' || !Number.isFinite(meters)) return ''
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`
+}
+
+// 後端把每段 leg 的指示掛在「終點站」上（stops[i].instructions = 上一站->本站）。
+// 時間軸要呈現「從本站出發往下一站怎麼走」，所以在 stop[index] 底下顯示下一段
+// （stops[index+1]）的指示，並濾掉「抵達目的地」。只在切換車輛時算一次，
+// 避免播放中每個 tick 重新 filter 出新陣列。
+const nextSteps = computed(() =>
+  stops.value.map((_, index) =>
+    (stops.value[index + 1]?.instructions || []).filter((step) => step.type !== 'arrive')
+  )
+)
+
+// 目前正在行駛的 step：車輛剛通過 reachedIndex 這一站、正往下一站前進，因此高亮
+// 落在該站底下顯示的那段 leg。段內時間與道路距離成正比（見
+// routePlanTracks.timedPathFromGeometry），故依累積距離比例對應目前時刻。
+const activeStep = computed(() => {
+  const now = displayTime.value
+  const list = stops.value
+  const originIndex = reachedIndex.value
+  if (originIndex < 0 || originIndex + 1 >= list.length) return { originIndex: -1, stepIndex: -1 }
+
+  const steps = nextSteps.value[originIndex] || []
+  if (!steps.length) return { originIndex, stepIndex: -1 }
+
+  const t0 = list[originIndex].tMs
+  const t1 = list[originIndex + 1].tMs
+  const span = t1 - t0
+  if (!(span > 0)) return { originIndex, stepIndex: 0 }
+
+  const total = steps.reduce((sum, step) => sum + (Number(step.distance_m) || 0), 0)
+  const elapsedFrac = Math.min(1, Math.max(0, (now - t0) / span))
+  if (!(total > 0)) {
+    // 無距離資料時退回依 step 數平均切分。
+    return { originIndex, stepIndex: Math.min(steps.length - 1, Math.floor(elapsedFrac * steps.length)) }
+  }
+
+  const targetDist = elapsedFrac * total
+  let cumulative = 0
+  for (let k = 0; k < steps.length; k += 1) {
+    cumulative += Number(steps[k].distance_m) || 0
+    if (targetDist <= cumulative) return { originIndex, stepIndex: k }
+  }
+  return { originIndex, stepIndex: steps.length - 1 }
+})
+
+const isActiveStep = (index, stepIndex) =>
+  activeStep.value.originIndex === index && activeStep.value.stepIndex === stepIndex
+
+// 時間軸捲動容器；每當目前停靠點改變（播放推進或使用者拖動）就把該行捲到正中央。
+const timelineEl = ref(null)
+
+watch(
+  reachedIndex,
+  async () => {
+    await nextTick()
+    const container = timelineEl.value
+    if (!container) return
+    const row = container.querySelector('.tl-row.current')
+    if (!row) return
+    const containerRect = container.getBoundingClientRect()
+    const rowRect = row.getBoundingClientRect()
+    const delta = rowRect.top - containerRect.top - (container.clientHeight - row.clientHeight) / 2
+    container.scrollTo({ top: container.scrollTop + delta, behavior: 'smooth' })
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -93,7 +184,7 @@ const fmtTime = (ms) => {
 
     <section class="card timeline-card">
       <p class="card-title">停靠時間軸</p>
-      <ol v-if="stops.length" class="timeline">
+      <ol v-if="stops.length" ref="timelineEl" class="timeline">
         <li
           v-for="(stop, index) in stops"
           :key="`${stop.tMs}-${index}`"
@@ -106,6 +197,17 @@ const fmtTime = (ms) => {
             <span class="tl-name">{{ stop.name || typeLabel(stop.type) }}</span>
             <span class="tl-load tnum">{{ Math.round(stop.loadKg || 0) }} kg</span>
           </button>
+          <ol v-if="nextSteps[index].length" class="tl-nav-list">
+            <li
+              v-for="(step, stepIdx) in nextSteps[index]"
+              :key="stepIdx"
+              class="tl-nav-step"
+              :class="{ active: isActiveStep(index, stepIdx) }"
+            >
+              <span class="tl-nav-text">{{ step.text }}</span>
+              <span v-if="fmtMeters(step.distance_m)" class="tl-nav-dist tnum">{{ fmtMeters(step.distance_m) }}</span>
+            </li>
+          </ol>
         </li>
       </ol>
       <p v-else class="tl-empty">此路線沒有停靠時間資料。</p>
@@ -314,6 +416,42 @@ const fmtTime = (ms) => {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+.tl-nav-list {
+  margin: 1px 0 4px 26px;
+  padding-left: 14px;
+  display: grid;
+  gap: 1px;
+  list-style: decimal;
+  border-left: 1px solid var(--line, #2d4161);
+}
+
+.tl-nav-step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--text-dim, #9fb7da);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.tl-nav-step.active {
+  background: rgb(244 227 165 / 16%);
+  color: #f4e3a5;
+  font-weight: 700;
+}
+
+.tl-nav-dist {
+  flex: none;
+  color: #7f9dc0;
+}
+
+.tl-nav-step.active .tl-nav-dist {
+  color: #f4e3a5;
 }
 
 .tl-empty {

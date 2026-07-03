@@ -624,11 +624,26 @@ watch(
 )
 
 // Auto-follow: recenter on the simulator's current centroid (frame cadence).
+// Updates arrive every rendered frame, so a restarted 600ms easeTo would sit
+// forever in its slow-start phase and fight the render loop. Instead: a big
+// jump (follow just enabled, or a seek teleported the vehicle) gets one
+// uninterrupted ease; the per-frame small deltas use jumpTo, which is a cheap
+// transform update — the interpolated vehicle motion supplies the smoothness.
+let followEaseUntilReal = 0
 watch(
   () => props.simulatorState?.followCenter,
   (center) => {
     if (!map.value || !props.simulatorState?.autoFollow || !Array.isArray(center)) return
-    map.value.easeTo({ center, duration: 600 })
+    const nowReal = performance.now()
+    if (nowReal < followEaseUntilReal) return // let the recenter ease finish
+    const target = map.value.project({ lng: center[0], lat: center[1] })
+    const current = map.value.project(map.value.getCenter())
+    if (Math.hypot(target.x - current.x, target.y - current.y) > 100) {
+      followEaseUntilReal = nowReal + 400
+      map.value.easeTo({ center, duration: 400 })
+    } else {
+      map.value.jumpTo({ center })
+    }
   }
 )
 

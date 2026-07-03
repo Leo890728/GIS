@@ -58,6 +58,18 @@ const stopTypeLabels = {
 }
 
 const formatStopType = (value) => stopTypeLabels[value] || value
+
+const formatMeters = (meters) => {
+  if (typeof meters !== 'number' || !Number.isFinite(meters)) return ''
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`
+}
+
+// 指示掛在 leg 終點站上；此處要顯示「從本站往下一站」的走法，故取下一站的
+// instructions 並濾掉「抵達目的地」。
+const nextLegSteps = (route, idx) => {
+  const steps = route?.stops?.[idx + 1]?.instructions || []
+  return steps.filter((step) => step.type !== 'arrive')
+}
 </script>
 
 <template>
@@ -301,7 +313,13 @@ const formatStopType = (value) => stopTypeLabels[value] || value
         <p class="route-name">{{ route.vehicle_id }} / {{ route.distance_m }} m / {{ route.duration_s }} s</p>
         <ol class="stop-list">
           <li v-for="(stop, idx) in route.stops" :key="`${route.vehicle_id}-${idx}`" class="stop-row">
-            {{ idx + 1 }}. [{{ formatStopType(stop.type) }}] {{ stop.name }} / 載重 {{ stop.load_kg }} kg
+            <span>{{ idx + 1 }}. [{{ formatStopType(stop.type) }}] {{ stop.name }} / 載重 {{ stop.load_kg }} kg</span>
+            <ol v-if="nextLegSteps(route, idx).length" class="nav-list">
+              <li v-for="(step, stepIdx) in nextLegSteps(route, idx)" :key="stepIdx" class="nav-step">
+                <span class="nav-text">{{ step.text }}</span>
+                <span v-if="formatMeters(step.distance_m)" class="nav-dist">{{ formatMeters(step.distance_m) }}</span>
+              </li>
+            </ol>
           </li>
         </ol>
       </div>
@@ -492,5 +510,28 @@ const formatStopType = (value) => stopTypeLabels[value] || value
 .stop-row {
   color: #d1e4ff;
   font-size: 10px;
+}
+
+.nav-list {
+  margin: 2px 0 4px 8px;
+  padding-left: 14px;
+  display: grid;
+  gap: 1px;
+  list-style: decimal;
+  border-left: 1px solid #274363;
+}
+
+.nav-step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: #a9c4e6;
+  font-size: 9px;
+}
+
+.nav-dist {
+  flex: none;
+  color: #7f9dc0;
 }
 </style>
