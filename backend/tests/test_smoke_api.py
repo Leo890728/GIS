@@ -264,14 +264,48 @@ class SmokeApiTestCase(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual("FeatureCollection", payload["type"])
         self.assertEqual(1, len(payload["features"]))
-        self.assertGreaterEqual(len(self.fetch_requests), 2)
-        first = self.fetch_requests[0]
-        second = self.fetch_requests[1]
-        self.assertIsInstance(first, dict)
-        self.assertIsInstance(second, dict)
-        self.assertEqual("GET", first.get("method"))
-        self.assertEqual("mock://cleaner-index", first.get("url"))
-        self.assertEqual("POST", second.get("method"))
+        # 有可用 session 時直接打資料端點,不應重新 bootstrap index 頁。
+        self.assertEqual(1, len(self.fetch_requests))
+        only = self.fetch_requests[0]
+        self.assertIsInstance(only, dict)
+        self.assertEqual("POST", only.get("method"))
+        self.assertEqual("mock://skyeyes", only.get("url"))
+        self.assertFalse(
+            any(req.get("method") == "GET" for req in self.fetch_requests if isinstance(req, dict))
+        )
+
+    def test_dataset_v2_bootstraps_only_after_session_expiry(self):
+        from backend.data_sources.adapters.taichung_ws_skyeyes import (
+            TaichungWsSkyeyesAdapter,
+        )
+
+        source = {
+            "url": "mock://skyeyes",
+            "bootstrap_url": "mock://cleaner-index",
+            "method": "POST",
+        }
+        calls = []
+        state = {"has_session": False}
+
+        def fetcher(request):
+            calls.append(request)
+            if request.get("method") == "GET":  # bootstrap 建立 session
+                state["has_session"] = True
+                return ""
+            if not state["has_session"]:  # session 過期/未建立 -> 直接 POST 失敗
+                raise RuntimeError("session expired")
+            return {"d": "{\"DATA\":[]}"}
+
+        adapter = TaichungWsSkyeyesAdapter()
+
+        # 首次:無 session,直接 POST 失敗後 bootstrap 再重試。
+        adapter.fetch_payload(fetcher, source)
+        self.assertEqual(["POST", "GET", "POST"], [c.get("method") for c in calls])
+
+        # session 已建立:後續請求直接 POST,不再 bootstrap。
+        calls.clear()
+        adapter.fetch_payload(fetcher, source)
+        self.assertEqual(["POST"], [c.get("method") for c in calls])
 
     def test_admin_stat_zone_aggregate(self):
         response = self.client.post(

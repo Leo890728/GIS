@@ -25,6 +25,8 @@ def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        # 先清掉任何既有 handler,避免同一筆 log 被重複輸出兩次。
+        force=True,
     )
 
     dataset_service = DatasetService(
