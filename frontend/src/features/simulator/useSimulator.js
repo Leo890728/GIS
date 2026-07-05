@@ -377,6 +377,17 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   // --- Smooth playback toggle ------------------------------------------------
 
+  // After the playback window changes: if smoothing is on but the loaded
+  // tracks don't cover the new window, rebuild them for it (smoothing is
+  // window-scoped so big datasets only smooth the session being watched).
+  const reloadSmoothForWindow = () => {
+    if (!state.smooth) return
+    const lo = state.playFrom ?? state.from
+    const hi = state.playTo ?? state.to
+    if (lo == null || hi == null || smooth.coversWindow(lo, hi)) return
+    smooth.loadTracks().catch((error) => console.error(error))
+  }
+
   const setSmooth = async (enabled) => {
     // Route-plan tracks already follow the road geometry; OSRM smoothing is a
     // history-playback concept and would fetch a nonexistent dataset.
@@ -426,6 +437,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.playTo = state.to
       state.currentTime = Math.min(state.to, Math.max(state.from, state.currentTime ?? state.from))
     }
+    reloadSmoothForWindow()
     renderCurrent(true)
   }
 
@@ -449,6 +461,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     state.playTo = hi
     state.selectedSegmentIndex = -1
     state.currentTime = Math.min(hi, Math.max(lo, state.currentTime ?? hi))
+    reloadSmoothForWindow()
     renderCurrent(true)
   }
 

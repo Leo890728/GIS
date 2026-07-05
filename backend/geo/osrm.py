@@ -48,7 +48,16 @@ def fetch_route(base_url, profile, coordinates, *, steps=False, timeout=DEFAULT_
     with httpx.Client(timeout=timeout) as client:
         response = client.get(url)
     if response.status_code >= 400:
-        raise RuntimeError(f"OSRM route request failed: {response.status_code}")
+        # OSRM reports routing problems (NoRoute, NoSegment, InvalidValue…) as
+        # HTTP 400 with a JSON code; surface it so failures are diagnosable.
+        detail = ""
+        try:
+            detail = response.json().get("code") or ""
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"OSRM route request failed: {response.status_code}{f' {detail}' if detail else ''}"
+        )
 
     payload = response.json()
     if payload.get("code") != "Ok":
@@ -90,6 +99,32 @@ def _leg_coordinates(leg):
     return coords
 
 
+def _route_chunk_legs(base_url, profile, chunk, timeout):
+    """Per-pair leg geometries for one chunk, isolating unroutable pairs.
+
+    A single bad waypoint (GPS glitch, point outside the routing extract) makes
+    OSRM reject the whole request with 400 NoRoute/NoSegment — which would
+    straight-line hundreds of good legs at once. On a routing error, bisect the
+    chunk and retry each half, so only the genuinely unroutable pair(s) fall
+    back to a straight segment. Transport errors (OSRM down) are httpx
+    exceptions, not RuntimeError, and propagate immediately — no bisecting an
+    unreachable server.
+    """
+    try:
+        _coords, legs = fetch_route(base_url, profile, chunk, steps=True, timeout=timeout)
+        if len(legs) == len(chunk) - 1:
+            return [_leg_coordinates(leg) for leg in legs]
+    except RuntimeError:
+        pass
+    if len(chunk) == 2:
+        return [[list(chunk[0]), list(chunk[1])]]
+    mid = len(chunk) // 2
+    # Overlap by one waypoint so every consecutive pair stays covered.
+    left = _route_chunk_legs(base_url, profile, chunk[: mid + 1], timeout)
+    right = _route_chunk_legs(base_url, profile, chunk[mid:], timeout)
+    return left + right
+
+
 def route_legs(
     base_url,
     profile,
@@ -121,10 +156,7 @@ def route_legs(
             raise RuntimeError("Cannot build a valid OSRM route chunk within the URL limit")
 
         chunk = coordinates[start : end + 1]
-        _coords, legs = fetch_route(base_url, profile, chunk, steps=True, timeout=timeout)
-        if len(legs) != len(chunk) - 1:
-            raise RuntimeError("OSRM returned an unexpected number of legs for the chunk")
-        leg_geometries.extend(_leg_coordinates(leg) for leg in legs)
+        leg_geometries.extend(_route_chunk_legs(base_url, profile, chunk, timeout))
         start = end
 
     return leg_geometries

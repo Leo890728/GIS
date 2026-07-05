@@ -13,11 +13,20 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
   let smoothTracks = []
   let smoothAbort = null
   let lastSmoothRenderReal = 0
+  // Time window the loaded tracks cover. Tracks are only built for the active
+  // playback window (selected session/day), not the whole recording, so large
+  // datasets smooth just the part being watched.
+  let loadedFrom = null
+  let loadedTo = null
 
   const hasTracks = () => smoothTracks.length > 0
   const getTracks = () => smoothTracks
+  const coversWindow = (lo, hi) =>
+    smoothTracks.length > 0 && loadedFrom != null && loadedTo != null && lo >= loadedFrom && hi <= loadedTo
   const reset = () => {
     smoothTracks = []
+    loadedFrom = null
+    loadedTo = null
   }
 
   const abortLoad = () => {
@@ -64,17 +73,23 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     abortLoad()
     smoothAbort = new AbortController()
     const controller = smoothAbort
+    // Smooth only the active playback window (the selected recording session),
+    // not the dataset's full range.
+    const from = state.playFrom ?? state.from
+    const to = state.playTo ?? state.to
     state.loading = true
     state.smoothing = true
     state.smoothProgress = { done: 0, total: 0 }
     try {
-      const response = await streamHistoryTrack(apiBaseUrl, state.dataId, state.from, state.to, {
+      const response = await streamHistoryTrack(apiBaseUrl, state.dataId, from, to, {
         signal: controller.signal,
         onProgress: ({ done, total }) => {
           state.smoothProgress = { done: Number(done) || 0, total: Number(total) || 0 }
         }
       })
       smoothTracks = normalizeSmoothTracks(response?.tracks)
+      loadedFrom = from
+      loadedTo = to
       renderSmooth(state.currentTime)
       state.error = ''
     } catch (error) {
@@ -96,5 +111,5 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     }
   }
 
-  return { renderSmooth, renderTick, loadTracks, abortLoad, hasTracks, getTracks, reset }
+  return { renderSmooth, renderTick, loadTracks, abortLoad, hasTracks, getTracks, coversWindow, reset }
 }
