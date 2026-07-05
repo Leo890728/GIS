@@ -7,7 +7,7 @@ import { isDynamicLayer } from './dataLayerQueries'
 // feeds reconstructed GeoJSON so the dataset's icons / heatmap / tooltips are
 // reused as-is. Owns the simulator key + prior-active bookkeeping; the data
 // layers composable wires in shared state and the per-key refresh.
-export const useSimulatorLayerBridge = ({ dataLayerState, dataLayerGeoJson, refreshDataLayerByKey }) => {
+export const useSimulatorLayerBridge = ({ dataLayerState, setLayerGeoJson, refreshDataLayerByKey }) => {
   const simulatorLayerKey = ref(null)
   const simulatorPriorActive = new Map()
 
@@ -32,7 +32,7 @@ export const useSimulatorLayerBridge = ({ dataLayerState, dataLayerGeoJson, refr
     if (dataLayerState.value[key].active) {
       refreshDataLayerByKey(key).catch((error) => console.error(error))
     } else {
-      dataLayerGeoJson.value[key] = emptyFeatureCollection()
+      setLayerGeoJson(key, emptyFeatureCollection())
     }
   }
 
@@ -48,14 +48,14 @@ export const useSimulatorLayerBridge = ({ dataLayerState, dataLayerGeoJson, refr
     }
     simulatorLayerKey.value = key
     layer.active = true
-    dataLayerGeoJson.value[key] = emptyFeatureCollection()
+    setLayerGeoJson(key, emptyFeatureCollection())
     return layer
   }
 
   const setSimulatorGeoJson = (geojson) => {
     const key = simulatorLayerKey.value
     if (!key) return
-    dataLayerGeoJson.value[key] = geojson || emptyFeatureCollection()
+    setLayerGeoJson(key, geojson || emptyFeatureCollection())
   }
 
   return {

@@ -59,6 +59,16 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
   const dataLayerRuntime = ref(buildInitialRuntimeMap(dataLayerState.value))
   const dataAggregate = ref(createDefaultAggregateState())
 
+  // Always replace the dict instead of mutating a key: the simulator feeds a
+  // new FeatureCollection every rendered frame, and a deep watch over every
+  // layer's features (the alternative for catching key mutations) costs a full
+  // reactive traversal of all loaded data per frame. Identity replacement lets
+  // consumers watch shallowly and lets the map skip layers whose value is
+  // unchanged.
+  const setLayerGeoJson = (key, geojson) => {
+    dataLayerGeoJson.value = { ...dataLayerGeoJson.value, [key]: geojson || emptyFeatureCollection() }
+  }
+
   const activeDataLayerCount = computed(() =>
     Object.values(dataLayerState.value).filter((layer) => layer.active).length
   )
@@ -77,7 +87,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
     setSimulatorGeoJson
   } = useSimulatorLayerBridge({
     dataLayerState,
-    dataLayerGeoJson,
+    setLayerGeoJson,
     refreshDataLayerByKey: (key) => refreshDataLayerByKey(key)
   })
 
@@ -131,7 +141,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
     }
 
     if (layer?.query?.disabled === true) {
-      dataLayerGeoJson.value[key] = emptyFeatureCollection()
+      setLayerGeoJson(key, emptyFeatureCollection())
       markLayerFetched(key)
       runtime.isFetching = false
       runtime.lastError = ''
@@ -144,7 +154,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
       layer?.query?.useRangeRequest === true &&
       !hasRangeRequestCodes(selectedRangeRequest)
     ) {
-      dataLayerGeoJson.value[key] = emptyFeatureCollection()
+      setLayerGeoJson(key, emptyFeatureCollection())
       markLayerFetched(key)
       runtime.isFetching = false
       runtime.lastError = ''
@@ -161,13 +171,13 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
       const geojson = await fetchDataPoints(apiBaseUrl, pointQueryPayloadFor(layer), queryEndpoint)
       const styledGeojson = applyDataStyleHandler(geojson, layer)
       if (layerRequestSequence.get(key) !== nextSequence) return false
-      dataLayerGeoJson.value[key] = styledGeojson
+      setLayerGeoJson(key, styledGeojson)
       markLayerFetched(key)
       return true
     } catch (error) {
       if (layerRequestSequence.get(key) !== nextSequence) return false
       runtime.lastError = error?.message || '資料點查詢失敗'
-      dataLayerGeoJson.value[key] = emptyFeatureCollection()
+      setLayerGeoJson(key, emptyFeatureCollection())
       return false
     } finally {
       if (layerRequestSequence.get(key) === nextSequence) {
@@ -292,7 +302,7 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
         console.error(error)
       })
     } else {
-      dataLayerGeoJson.value[key] = emptyFeatureCollection()
+      setLayerGeoJson(key, emptyFeatureCollection())
       refreshDataAggregate().catch((error) => {
         console.error(error)
       })

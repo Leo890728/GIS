@@ -574,13 +574,16 @@ watch(
   { deep: true }
 )
 
+// Shallow on purpose: writers replace the dict identity per change (see
+// setLayerGeoJson), and the simulator feeds a frame every ~16ms during
+// playback — a deep watch would re-traverse every feature of every loaded
+// layer per frame.
 watch(
   () => props.dataLayerGeoJson,
   () => {
     updateDataLayerGeoJson()
     refreshHoverFromData()
-  },
-  { deep: true }
+  }
 )
 
 watch(
