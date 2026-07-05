@@ -53,6 +53,18 @@ describe('streamHistoryTrack', () => {
     expect(result.tracks[0].segments[0].path).toHaveLength(500)
   })
 
+  it('collects per-entity track events when the result only carries metadata', async () => {
+    stubFetchWithChunks([
+      'event: progress\ndata: {"done":1,"total":2}\n\n',
+      'event: track\ndata: {"key":"A","segments":[]}\n\n',
+      'event: track\ndata: {"key":"B","segments":[]}\n\n',
+      'event: result\ndata: {"dataId":"ds"}\n\n'
+    ])
+    const result = await streamHistoryTrack('http://api', 'ds', 0, 1, {})
+    expect(result.dataId).toBe('ds')
+    expect(result.tracks.map((t) => t.key).sort()).toEqual(['A', 'B'])
+  })
+
   it('handles an event separator split across chunk boundaries', async () => {
     stubFetchWithChunks([
       'event: progress\ndata: {"done":1,"total":1}\n',

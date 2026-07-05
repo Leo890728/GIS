@@ -69,6 +69,10 @@ export const streamHistoryTrack = async (apiBaseUrl, dataId, fromMs, toMs, { onP
   let parts = []
   let result = null
   let streamError = null
+  // The backend streams one `track` event per entity (bounded memory server
+  // side); the final `result` event only carries metadata. A `result` that
+  // still embeds `tracks` (older backend) wins over the collected list.
+  const collectedTracks = []
 
   const processEvents = (text) => {
     let rest = text
@@ -79,6 +83,7 @@ export const streamHistoryTrack = async (apiBaseUrl, dataId, fromMs, toMs, { onP
       if (!data) continue
       const payload = JSON.parse(data)
       if (event === 'progress') onProgress?.(payload)
+      else if (event === 'track') collectedTracks.push(payload)
       else if (event === 'result') result = payload
       else if (event === 'error') streamError = new Error(payload.message || '串流錯誤')
     }
@@ -101,5 +106,6 @@ export const streamHistoryTrack = async (apiBaseUrl, dataId, fromMs, toMs, { onP
 
   if (streamError) throw streamError
   if (!result) throw new Error('軌跡串流結束但沒有回傳結果')
+  if (!Array.isArray(result.tracks)) result = { ...result, tracks: collectedTracks }
   return result
 }

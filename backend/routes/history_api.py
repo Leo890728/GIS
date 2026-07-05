@@ -96,49 +96,72 @@ def history_track_stream(data_id):
     """Same payload as /track, but streamed as Server-Sent Events.
 
     Emits `progress` events ({done, total}) as each entity's road-following
-    track is built, then a final `result` event carrying the full track payload
-    (or an `error` event). Lets the frontend show OSRM smoothing progress.
+    track is built, then one `track` event per entity, then a final `result`
+    event with the metadata (or an `error` event). Streaming each entity
+    separately keeps the peak memory bounded to one entity's JSON — a single
+    result event for a large dataset (tens of MB) piled a giant string on top
+    of the track dicts and got the worker OOM-killed.
     """
     service = _service()
     frm = _parse_param("from")
     to = _parse_param("to")
 
-    events = queue.Queue()
+    # Bounded so the worker thread cannot pile every serialized track into the
+    # queue faster than the client drains it; `cancelled` unblocks the worker
+    # when the client disconnects mid-stream.
+    events = queue.Queue(maxsize=8)
+    cancelled = threading.Event()
     done = object()
 
+    def put_event(item):
+        while not cancelled.is_set():
+            try:
+                events.put(item, timeout=1)
+                return True
+            except queue.Full:
+                continue
+        return False
+
     def on_progress(built, total):
-        events.put(_sse("progress", {"done": built, "total": total}))
+        put_event(_sse("progress", {"done": built, "total": total}))
 
     def worker():
         try:
             tracks = service.history_tracks(data_id, frm, to, progress_cb=on_progress)
-            events.put(
+            # pop() releases each track (dict + serialized string) as soon as
+            # the generator has flushed it to the client.
+            while tracks:
+                if not put_event(_sse("track", tracks.pop())):
+                    return
+            put_event(
                 _sse(
                     "result",
                     {
                         "dataId": data_id,
                         "from": iso_utc(frm),
                         "to": iso_utc(to),
-                        "tracks": tracks,
                     },
                 )
             )
         except KeyError as err:
-            events.put(_sse("error", {"message": str(err)}))
+            put_event(_sse("error", {"message": str(err)}))
         except Exception:  # pragma: no cover - defensive: surface failure to client
-            events.put(_sse("error", {"message": "Failed to build tracks"}))
+            put_event(_sse("error", {"message": "Failed to build tracks"}))
         finally:
-            events.put(done)
+            put_event(done)
 
     @stream_with_context
     def generate():
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
-        while True:
-            item = events.get()
-            if item is done:
-                break
-            yield item
+        try:
+            while True:
+                item = events.get()
+                if item is done:
+                    break
+                yield item
+        finally:
+            cancelled.set()
 
     return Response(
         generate(),

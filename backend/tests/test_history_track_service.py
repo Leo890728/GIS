@@ -74,7 +74,7 @@ class HistoryTrackServiceTestCase(unittest.TestCase):
         self.assertEqual(1, len(tracks))
         path = self._only_path(tracks[0])
         self.assertEqual(3, len(path))
-        times = [datetime.fromisoformat(p["t"].replace("Z", "+00:00")) for p in path]
+        times = [datetime.fromtimestamp(p["tMs"] / 1000, tz=timezone.utc) for p in path]
         self.assertEqual(_t(0), times[0])
         self.assertEqual(_t(1), times[-1])
         self.assertTrue(times[0] < times[1] < times[2])  # monotonic
@@ -214,10 +214,10 @@ class HistoryTrackServiceTestCase(unittest.TestCase):
         )
         segments = tracks[0]["segments"]
         self.assertEqual(2, len(segments))
-        self.assertEqual(_t(0).isoformat().replace("+00:00", "Z"), segments[0]["from"])
-        self.assertEqual(_t(1).isoformat().replace("+00:00", "Z"), segments[0]["to"])
-        self.assertEqual(_t(120).isoformat().replace("+00:00", "Z"), segments[1]["from"])
-        self.assertEqual(_t(121).isoformat().replace("+00:00", "Z"), segments[1]["to"])
+        self.assertEqual(int(_t(0).timestamp() * 1000), segments[0]["from"])
+        self.assertEqual(int(_t(1).timestamp() * 1000), segments[0]["to"])
+        self.assertEqual(int(_t(120).timestamp() * 1000), segments[1]["from"])
+        self.assertEqual(int(_t(121).timestamp() * 1000), segments[1]["to"])
         # The bridging (gap) leg is never routed: only the two intra-session legs.
         self.assertEqual(2, len(self.calls))
 
