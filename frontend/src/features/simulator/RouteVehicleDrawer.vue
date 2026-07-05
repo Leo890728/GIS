@@ -74,6 +74,19 @@ const typeLabels = {
 }
 const typeLabel = (value) => typeLabels[value] || value || ''
 
+// 時間軸每站顯示「類型+序號」而非資料名稱：收運點依造訪順序編號
+// （收運點1、收運點2…），其餘站別沿用類型標籤。
+const stopLabels = computed(() => {
+  let pickupNo = 0
+  return stops.value.map((stop) => {
+    if (stop.type === 'pickup') {
+      pickupNo += 1
+      return `收運點${pickupNo}`
+    }
+    return typeLabel(stop.type) || stop.name || ''
+  })
+})
+
 const fmtTime = (ms) => {
   const d = new Date(ms)
   if (Number.isNaN(d.getTime())) return '--'
@@ -191,10 +204,15 @@ watch(
           class="tl-row"
           :class="{ done: index < reachedIndex, current: index === reachedIndex }"
         >
-          <button class="tl-btn" type="button" :title="'跳至 ' + fmtTime(stop.tMs)" @click="emit('seek', stop.tMs)">
+          <button
+            class="tl-btn"
+            type="button"
+            :title="`跳至 ${fmtTime(stop.tMs)} ${stopLabels[index]}`"
+            @click="emit('seek', stop.tMs)"
+          >
             <span class="tl-dot"></span>
             <span class="tl-time tnum">{{ fmtTime(stop.tMs) }}</span>
-            <span class="tl-name">{{ stop.name || typeLabel(stop.type) }}</span>
+            <span class="tl-name">{{ stopLabels[index] }}</span>
             <span class="tl-load tnum">{{ Math.round(stop.loadKg || 0) }} kg</span>
           </button>
           <ol v-if="nextSteps[index].length" class="tl-nav-list">
