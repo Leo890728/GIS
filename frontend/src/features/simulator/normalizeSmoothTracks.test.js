@@ -42,6 +42,27 @@ describe('normalizeSmoothTracks', () => {
     expect(normalizeSmoothTracks(tracks)).toHaveLength(1)
   })
 
+  it('repairs a path that violates the time-sorted invariant', () => {
+    // pathIndexAt binary-searches by tMs — an unsorted source must be fixed at
+    // load time instead of producing garbage interpolation.
+    const [track] = normalizeSmoothTracks([
+      {
+        key: 'C',
+        segments: [
+          {
+            path: [
+              { tMs: 3000, lng: 3, lat: 0 },
+              { tMs: 1000, lng: 1, lat: 0 },
+              { tMs: 2000, lng: 2, lat: 0 }
+            ]
+          }
+        ],
+        samples: []
+      }
+    ])
+    expect(track.segments[0].path.map((p) => p.tMs)).toEqual([1000, 2000, 3000])
+  })
+
   it('defaults missing properties/samples to empty', () => {
     const [track] = normalizeSmoothTracks([
       { key: 'B', segments: [{ path: [{ t: isoA, lng: 1, lat: 2 }, { t: isoB, lng: 3, lat: 4 }] }] }

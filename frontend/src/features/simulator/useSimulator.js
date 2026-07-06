@@ -13,32 +13,43 @@ import { useSimulatorShortcuts } from './useSimulatorShortcuts'
 const SPEED_PRESETS = [1, 10, 30, 60]
 const DEFAULT_SPEED = 30
 
+// Shared playback blackboard. Fields are grouped by domain, and each group has
+// ONE owning writer (other modules read only) — keep it that way:
 const createState = () => ({
+  // Dataset identity + timeline (writer: selectDataset/activate, live poll).
   active: false,
-  dataId: '',
+  dataId: '', // 'route-plan' is the sentinel for solved-route playback
   from: null,
   to: null,
   count: 0,
   intervalSeconds: 60,
-  currentTime: null,
   frames: [],
   segments: [],
-  selectedSegmentIndex: -1,
+  // Transport / virtual clock (writer: the clock + window/segment setters; all
+  // setters pause() first — during play `currentTime` is a ~10Hz mirror of the
+  // precise clock, see tick()).
+  currentTime: null,
   playFrom: null,
   playTo: null,
-  mode: 'history',
-  autoFollow: false,
-  followCenter: null,
+  playing: false,
+  speed: DEFAULT_SPEED,
+  selectedSegmentIndex: -1,
+  mode: 'history', // 'history' | 'live' | 'route-plan'
+  // Selection + camera follow (writer: useSelectedTrack / selectRouteVehicle).
   selected: null,
   selectedPos: null,
+  autoFollow: false,
+  followCenter: null,
+  // Selected-entity trajectory overlay (writer: useSelectedTrack).
   trackGeoJson: null,
   trackTraveledGeoJson: null,
   trackEndpointsGeoJson: null,
   trackLoading: false,
   trackError: '',
+  // Render/progress channels — single-writer each: `loading` belongs to the
+  // frame renderer (and dataset activation), `smoothing`/`smoothProgress` to
+  // the smooth renderer.
   featureCount: 0,
-  playing: false,
-  speed: DEFAULT_SPEED,
   routeHeatmap: false,
   smooth: false,
   smoothing: false,

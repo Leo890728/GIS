@@ -66,7 +66,11 @@ export const useDataLayers = (apiBaseUrl, selectedRangeGeoJsonRef, selectedRange
   // consumers watch shallowly and lets the map skip layers whose value is
   // unchanged.
   const setLayerGeoJson = (key, geojson) => {
-    dataLayerGeoJson.value = { ...dataLayerGeoJson.value, [key]: geojson || emptyFeatureCollection() }
+    const next = { ...dataLayerGeoJson.value, [key]: geojson || emptyFeatureCollection() }
+    // Dev guard for the replace-don't-mutate invariant: a direct
+    // `dataLayerGeoJson.value[k] = x` would bypass the shallow watch and the
+    // map would silently never update — freeze the dict so it throws instead.
+    dataLayerGeoJson.value = import.meta.env.DEV ? Object.freeze(next) : next
   }
 
   const activeDataLayerCount = computed(() =>

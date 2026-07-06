@@ -89,7 +89,8 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     // not the dataset's full range.
     const from = state.playFrom ?? state.from
     const to = state.playTo ?? state.to
-    state.loading = true
+    // Streaming progress is reported through `smoothing`/`smoothProgress` only;
+    // `state.loading` belongs to the frame renderer (single-writer channels).
     state.smoothing = true
     state.smoothProgress = { done: 0, total: 0 }
     try {
@@ -111,14 +112,9 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     } finally {
       if (smoothAbort === controller) smoothAbort = null
       // Once this is the abandoned-latest load (no newer load replaced it),
-      // clear the smooth-specific flag even on abort so the UI never sticks.
-      // `loading` is shared with frame loads, so only clear it on success to
-      // avoid clobbering a frame fetch that an abort path may have started.
+      // clear the flag even on abort so the UI never sticks.
       if (smoothAbort === null) {
         state.smoothing = false
-      }
-      if (!controller.signal.aborted) {
-        state.loading = false
       }
     }
   }

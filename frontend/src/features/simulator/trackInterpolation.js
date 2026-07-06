@@ -73,20 +73,32 @@ export const activePropertiesAt = (samples, ms) => {
   return samples[pathIndexAt(samples, ms)].properties
 }
 
+const isTimeSorted = (path) => {
+  for (let i = 1; i < path.length; i += 1) {
+    if (path[i].tMs < path[i - 1].tMs) return false
+  }
+  return true
+}
+
 // Normalize a track's segments to [{ path: [{ tMs, lng, lat }] }]. Accepts both
 // the raw /track payload (path vertices carry an ISO `t`) and already-loaded
 // smooth tracks (vertices carry a numeric `tMs`).
 export const normalizeTrackSegments = (track) =>
   (track?.segments || [])
-    .map((seg) => ({
-      path: (seg.path || [])
+    .map((seg) => {
+      const path = (seg.path || [])
         .map((point) => ({
           tMs: Number.isFinite(point.tMs) ? point.tMs : new Date(point.t).getTime(),
           lng: point.lng,
           lat: point.lat
         }))
         .filter((point) => Number.isFinite(point.tMs))
-    }))
+      // pathIndexAt binary-searches by tMs, so paths MUST be time-sorted. The
+      // backend emits them sorted; repair (stable sort) rather than render
+      // garbage if a source ever violates that. Load-time only, O(n) check.
+      if (!isTimeSorted(path)) path.sort((a, b) => a.tMs - b.tMs)
+      return { path }
+    })
     .filter((seg) => seg.path.length > 0)
 
 // Normalize the raw /track stream payload into smooth-playback tracks:
