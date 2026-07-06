@@ -36,6 +36,18 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     }
   }
 
+  // Turn smoothing fully off: abort any in-flight stream, drop loaded tracks,
+  // and clear every smooth-related flag. This is the ONE place that knows the
+  // full checklist — callers (smooth toggle, live mode, simulator teardown)
+  // must not reach into the individual fields themselves.
+  const disable = () => {
+    abortLoad()
+    state.smooth = false
+    state.smoothing = false
+    state.smoothProgress = { done: 0, total: 0 }
+    reset()
+  }
+
   const renderSmooth = (ms) => {
     if (!smoothTracks.length) return
     const features = []
@@ -111,5 +123,5 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     }
   }
 
-  return { renderSmooth, renderTick, loadTracks, abortLoad, hasTracks, getTracks, coversWindow, reset }
+  return { renderSmooth, renderTick, loadTracks, abortLoad, disable, hasTracks, getTracks, coversWindow, reset }
 }

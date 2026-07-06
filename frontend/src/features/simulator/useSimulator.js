@@ -392,13 +392,11 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     // Route-plan tracks already follow the road geometry; OSRM smoothing is a
     // history-playback concept and would fetch a nonexistent dataset.
     if (isRoutePlanMode()) return
-    state.smooth = enabled === true
-    if (state.smooth) {
+    if (enabled === true) {
+      state.smooth = true
       await smooth.loadTracks()
     } else {
-      smooth.abortLoad()
-      state.smoothing = false
-      smooth.reset()
+      smooth.disable()
       frame.applyActiveFrame(true)
     }
   }
@@ -522,12 +520,11 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stop = () => {
     pause()
-    smooth.abortLoad()
+    smooth.disable()
     live.stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
     frame.invalidate()
     frame.reset()
-    smooth.reset()
     selectedTrack.reset()
     clearRoutePlan()
     dataLayers.exitSimulator()

@@ -68,10 +68,7 @@ export const useLiveMode = ({
     }
     pausePlayback()
     // Live follows the leading edge as frames; smooth tracks would be stale.
-    smooth.abortLoad()
-    state.smoothing = false
-    state.smooth = false
-    smooth.reset()
+    smooth.disable()
     state.selectedSegmentIndex = -1
     clearSelection()
     state.mode = 'live'
