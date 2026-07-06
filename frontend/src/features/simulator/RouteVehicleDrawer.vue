@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { LocateFixed, X } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -22,31 +22,15 @@ const emit = defineEmits(['close', 'seek', 'toggle-follow'])
 const stops = computed(() => props.vehicle?.stops || [])
 const isFollowing = computed(() => props.simulatorState.autoFollow === true)
 
-// `state.currentTime` advances on every rAF (60–120Hz); re-rendering the drawer
-// at that rate is wasted work while it competes with the map's render loop.
-// Mirror the clock into a ~10Hz trailing-throttled ref and derive everything
-// time-dependent from it, so the drawer settles on the latest value after
-// seeks/pauses without ticking at full rAF rate.
-const displayTime = ref(props.simulatorState.currentTime ?? 0)
-let displayTimer = null
-watch(
-  () => props.simulatorState.currentTime,
-  () => {
-    if (displayTimer) return
-    displayTimer = setTimeout(() => {
-      displayTimer = null
-      displayTime.value = props.simulatorState.currentTime ?? 0
-    }, 100)
-  }
-)
-onBeforeUnmount(() => {
-  if (displayTimer) clearTimeout(displayTimer)
-})
+// `state.currentTime` is already the ~10Hz throttled mirror of the precise
+// playback clock (see useSimulator's tick), so time-dependent computeds can
+// read it directly without re-throttling.
+const clockMs = computed(() => props.simulatorState.currentTime ?? 0)
 
 // Index of the last stop already reached at the playback clock (-1 = still en
 // route to the first stop). Load is a step function of this index.
 const reachedIndex = computed(() => {
-  const now = displayTime.value
+  const now = clockMs.value
   let index = -1
   for (const [i, stop] of stops.value.entries()) {
     if (stop.tMs <= now) index = i
@@ -112,7 +96,7 @@ const nextSteps = computed(() =>
 // 落在該站底下顯示的那段 leg。段內時間與道路距離成正比（見
 // routePlanTracks.timedPathFromGeometry），故依累積距離比例對應目前時刻。
 const activeStep = computed(() => {
-  const now = displayTime.value
+  const now = clockMs.value
   const list = stops.value
   const originIndex = reachedIndex.value
   if (originIndex < 0 || originIndex + 1 >= list.length) return { originIndex: -1, stepIndex: -1 }

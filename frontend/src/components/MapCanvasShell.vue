@@ -142,6 +142,17 @@ const routeLayerVisibilityRef = toRef(props, 'routeLayerVisibility')
 
 const orderedLayerEntries = computed(() => Object.entries(props.layerState))
 const orderedDataLayerEntries = computed(() => Object.entries(props.dataLayerState))
+
+// Field labels for the analytics drawer come from the simulated dataset's
+// layer config (tooltip labels + propertyLabels extras), not hardcoded UI maps.
+const simulatorPropertyLabels = computed(() => {
+  const dataId = props.simulatorState?.dataId
+  if (!dataId) return {}
+  const entry = Object.values(props.dataLayerState || {}).find(
+    (layer) => (layer.query?.dataId || layer.dataId) === dataId
+  )
+  return entry?.propertyLabels || {}
+})
 const routeTypeLabels = {
   start: '起點',
   end: '終點',
@@ -1023,25 +1034,16 @@ const setRouteSimSourceData = (sourceId, fc) => {
   if (src) src.setData(fc || { type: 'FeatureCollection', features: [] })
 }
 
-watch(
-  () => props.routeSimGeoJson,
-  (fc) => setRouteSimSourceData('route-sim-source', fc)
-)
-
-watch(
-  () => props.routeSimTraveledGeoJson,
-  (fc) => setRouteSimSourceData('route-sim-line-traveled-source', fc)
-)
-
-watch(
-  () => props.routeSimRemainingGeoJson,
-  (fc) => setRouteSimSourceData('route-sim-line-remaining-source', fc)
-)
-
-watch(
-  () => props.routeSimHeatGeoJson,
-  (fc) => setRouteSimSourceData('route-sim-heat-source', fc)
-)
+// Route *simulation* overlays (moving trucks + progress lines + heat), fed per
+// frame by useSimulator — distinct from the route *plan* layers above
+// (routeLineGeoJson etc.), which show the solved static route. One watch per
+// source on purpose: during playback only the vehicle points change every
+// frame, so the heavier line/heat sources must not re-upload with them.
+const bindRouteSimSource = (getter, sourceId) => watch(getter, (fc) => setRouteSimSourceData(sourceId, fc))
+bindRouteSimSource(() => props.routeSimGeoJson, 'route-sim-source')
+bindRouteSimSource(() => props.routeSimTraveledGeoJson, 'route-sim-line-traveled-source')
+bindRouteSimSource(() => props.routeSimRemainingGeoJson, 'route-sim-line-remaining-source')
+bindRouteSimSource(() => props.routeSimHeatGeoJson, 'route-sim-heat-source')
 
 onMounted(() => {
   createMap()
@@ -1143,6 +1145,7 @@ onBeforeUnmount(() => {
     <AnalyticsDrawer
       v-if="props.simulatorState?.active && props.simulatorState?.mode !== 'route-plan'"
       :simulator-state="props.simulatorState"
+      :property-labels="simulatorPropertyLabels"
       @toggle-track="emit('simulator-toggle-track')"
       @toggle-follow="emit('simulator-toggle-follow')"
       @clear-selection="emit('simulator-select-feature', null)"

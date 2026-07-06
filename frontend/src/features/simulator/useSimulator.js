@@ -287,8 +287,13 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     lastTickReal = nowReal
 
     // A seek during play (control bar, shortcuts) wrote state.currentTime
-    // directly; adopt it as the new clock origin.
-    if (state.currentTime !== lastWrittenClock) clockMs = state.currentTime
+    // directly; adopt it as the new clock origin. Also mark it as "written" so
+    // the next tick doesn't re-adopt the same value and discard the progress
+    // made since (the mirror lags the precise clock by up to one write window).
+    if (state.currentTime !== lastWrittenClock) {
+      clockMs = state.currentTime
+      lastWrittenClock = state.currentTime
+    }
 
     const next = clockMs + deltaReal * state.speed
     if (next >= state.playTo) {

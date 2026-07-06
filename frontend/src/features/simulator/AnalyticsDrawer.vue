@@ -6,6 +6,12 @@ const props = defineProps({
   simulatorState: {
     type: Object,
     required: true
+  },
+  // field -> label map from the simulated dataset's layer config
+  // (dataLayerState propertyLabels); unknown fields fall back to the raw key.
+  propertyLabels: {
+    type: Object,
+    default: () => ({})
   }
 })
 
@@ -16,36 +22,13 @@ const open = ref(true)
 const selected = computed(() => props.simulatorState.selected)
 const hasTrack = computed(() => !!props.simulatorState.trackGeoJson)
 const isFollowing = computed(() => !!props.simulatorState.autoFollow)
-const propertyLabelMap = {
-  car_licence: '車號',
-  car_no: '車號',
-  cartype: '車種',
-  dt: '時間',
-  caption: '位置',
-  status: '狀態',
-  direct: '方向',
-  OverSpeedText: '是否超速',
-  SpeedBand: '速度級距',
-  CODEBASE: '統計區代碼',
-  VILLAGE_CODE: '村里代碼',
-  P_CNT: '人口數',
-  icnrtname: '焚化廠名稱',
-  budadd: '地址',
-  locaepb: '主管環保局',
-  oprtdept: '操作單位',
-  weptype: '營運型態',
-  icnrtnum: '爐數',
-  dsnprcqt: '設計處理量',
-  dsneleqt: '發電機組裝置容量',
-  dsnhv: '設計熱值'
-}
 
 // Show the clicked entity's data fields, hiding internal/style helper keys.
 const selectedRows = computed(() => {
   const entries = Object.entries(selected.value?.properties ?? {})
   return entries
     .filter(([key, value]) => !key.startsWith('__') && value != null && value !== '')
-    .map(([key, value]) => ({ key, label: propertyLabelMap[key] || key, value: String(value) }))
+    .map(([key, value]) => ({ key, label: props.propertyLabels[key] || key, value: String(value) }))
 })
 
 const fmt = (ms) => {
