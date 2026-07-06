@@ -1,10 +1,10 @@
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive } from 'vue'
 import { fetchHistoryFrames, fetchHistoryRange } from './simulatorApi'
 import { deriveSessionSegments, toMs } from './playbackTimeline'
-import { bearingToTruckIconSuffix, buildRouteHeatGeoJson, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
-import { activePropertiesAt, interpolateSegmentsAt, pathIndexAt, remainingCoords, traveledCoords } from './trackInterpolation'
+import { buildRouteHeatGeoJson, buildRoutePlanTracks } from './routePlanTracks'
 import { getVehicleColor } from '../route/useRoutePlanner'
 import { useFrameRenderer } from './useFrameRenderer'
+import { useRoutePlanRenderer } from './useRoutePlanRenderer'
 import { useSmoothRenderer } from './useSmoothRenderer'
 import { useSelectedTrack } from './useSelectedTrack'
 import { useLiveMode } from './useLiveMode'
@@ -83,155 +83,14 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let lastTickReal = null
   let debounceTimer = null
 
-  // Route-plan playback: synthetic tracks built from a solved VRP result instead
-  // of recorded history. Rendered into its own GeoJSON ref (a dedicated map
-  // layer), so no live data layer is taken over.
-  let routePlanTracks = []
-  let lastRoutePlanRenderReal = 0
-  const routeSimGeoJson = ref({ type: 'FeatureCollection', features: [] })
-  // Per-frame route split: the already-traveled portion (drawn translucent) and
-  // the remaining portion (solid), both colored per vehicle.
-  const routeSimTraveledGeoJson = ref({ type: 'FeatureCollection', features: [] })
-  const routeSimRemainingGeoJson = ref({ type: 'FeatureCollection', features: [] })
-  // Pickup stops weighted by collected garbage, for the toggleable heatmap view.
-  const routeSimHeatGeoJson = ref({ type: 'FeatureCollection', features: [] })
-  // Per-vehicle playback progress `{ [vehicleId]: { visitedStops } }` consumed
-  // by the map to fade already-served stops.
-  const routeSimProgress = ref({})
-
   const isRoutePlanMode = () => state.mode === 'route-plan'
 
-  const clearRoutePlan = () => {
-    routePlanTracks = []
-    routeSimGeoJson.value = { type: 'FeatureCollection', features: [] }
-    routeSimTraveledGeoJson.value = { type: 'FeatureCollection', features: [] }
-    routeSimRemainingGeoJson.value = { type: 'FeatureCollection', features: [] }
-    routeSimHeatGeoJson.value = { type: 'FeatureCollection', features: [] }
-    routeSimProgress.value = {}
-  }
-
-  // The traveled/remaining split lines carry the full road geometry, so every
-  // reassignment costs a MapLibre setData (reparse + GPU upload) of thousands
-  // of vertices per vehicle. Their shape only changes when some vehicle crosses
-  // a geometry vertex, so rebuilds are gated on that signature; the interpolated
-  // vehicle points still move every frame. `forceLines` (seeks, selection,
-  // periodic refresh) bypasses the gate so the line tips re-attach to the trucks.
-  let lastLineSignature = null
-
-  const renderRoutePlan = (ms, forceLines = true) => {
-    const features = []
-    let lineSignature = ''
-    for (const track of routePlanTracks) {
-      // Clamp to the endpoints so vehicles wait at the depot before departure
-      // and rest at the end depot after finishing, instead of disappearing.
-      const position = interpolateSegmentsAt(track.segments, ms)
-      if (!position) continue
-      const path = track.segments[0].path
-      features.push({
-        type: 'Feature',
-        properties: {
-          ...track.properties,
-          ...activePropertiesAt(track.samples, ms),
-          __trackKey: track.key,
-          truckIconId: `tcg-v2-garbage-${bearingToTruckIconSuffix(pathBearingAt(path, ms))}`
-        },
-        geometry: { type: 'Point', coordinates: position }
-      })
-      lineSignature += `${track.key}:${pathIndexAt(path, ms)}|`
-    }
-    routeSimGeoJson.value = { type: 'FeatureCollection', features }
-    if (state.featureCount !== features.length) state.featureCount = features.length
-
-    if (forceLines || lineSignature !== lastLineSignature) {
-      lastLineSignature = lineSignature
-      const traveledFeatures = []
-      const remainingFeatures = []
-      const progress = {}
-      for (const track of routePlanTracks) {
-        const path = track.segments[0]?.path || []
-        const traveled = traveledCoords(path, ms)
-        if (traveled.length >= 2) {
-          traveledFeatures.push({
-            type: 'Feature',
-            properties: { ...track.properties },
-            geometry: { type: 'LineString', coordinates: traveled }
-          })
-        }
-        const remaining = remainingCoords(path, ms)
-        if (remaining.length >= 2) {
-          remainingFeatures.push({
-            type: 'Feature',
-            properties: { ...track.properties },
-            geometry: { type: 'LineString', coordinates: remaining }
-          })
-        }
-        progress[track.properties.vehicleId] = {
-          visitedStops: track.stopTimesMs.filter((tMs) => tMs <= ms).length
-        }
-      }
-      routeSimTraveledGeoJson.value = { type: 'FeatureCollection', features: traveledFeatures }
-      routeSimRemainingGeoJson.value = { type: 'FeatureCollection', features: remainingFeatures }
-      routeSimProgress.value = progress
-    }
-    // Keep the selection ring pinned to the selected vehicle as it moves, and
-    // recenter the camera when auto-follow is on.
-    if (state.selected?.key != null) {
-      const match = features.find((feature) => feature.properties.__trackKey === state.selected.key)
-      state.selectedPos = match ? match.geometry.coordinates : null
-      if (state.autoFollow && state.selectedPos) state.followCenter = state.selectedPos
-    }
-  }
-
-  // Selecting a simulated vehicle drives the right-hand vehicle drawer
-  // (timeline + current load); no history-track fetch is involved.
-  const selectRouteVehicle = (payload) => {
-    if (!payload || payload.key == null || payload.key === '') {
-      state.selected = null
-      state.selectedPos = null
-      state.autoFollow = false
-      state.followCenter = null
-      return
-    }
-    state.selected = { key: String(payload.key), properties: payload.properties || {} }
-    renderRoutePlan(state.currentTime)
-  }
-
-  const selectedRouteVehicle = computed(() => {
-    if (state.mode !== 'route-plan' || !state.selected) return null
-    const track = routePlanTracks.find((candidate) => candidate.key === state.selected.key)
-    if (!track) return null
-    return {
-      key: track.key,
-      vehicleId: track.properties.vehicleId,
-      vehicleColor: track.properties.vehicleColor,
-      stops: track.samples.map((sample) => ({
-        tMs: sample.tMs,
-        name: sample.properties.stopName,
-        type: sample.properties.stopType,
-        loadKg: sample.properties.loadKg,
-        instructions: sample.properties.instructions || []
-      }))
-    }
-  })
-
-  // Same ~60fps cap the smooth renderer uses during continuous play. During
-  // play the heavy split lines only rebuild on vertex crossings (see
-  // renderRoutePlan), plus a ~5Hz forced refresh so the line tips never trail
-  // visibly on long straight segments with sparse vertices.
-  let lastLineForceReal = 0
-  const renderRoutePlanTick = (ms, realNow = null) => {
-    if (realNow != null) {
-      if (realNow - lastRoutePlanRenderReal < 16) return
-      lastRoutePlanRenderReal = realNow
-      const forceLines = realNow - lastLineForceReal >= 200
-      if (forceLines) lastLineForceReal = realNow
-      renderRoutePlan(ms, forceLines)
-      return
-    }
-    renderRoutePlan(ms)
-  }
-
   // --- Rendering strategies + selection overlay ------------------------------
+
+  // Route-plan playback: synthetic tracks built from a solved VRP result
+  // instead of recorded history; renders into its own map layers, so no live
+  // data layer is taken over.
+  const routePlan = useRoutePlanRenderer({ state })
 
   const selectedTrack = useSelectedTrack({
     apiBaseUrl,
@@ -256,11 +115,11 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   })
 
   // Single render dispatch: pick the active strategy, then advance the trajectory
-  // overlay. `realNow` (a RAF timestamp) throttles smooth playback; omit it for
-  // immediate renders. `force` re-applies the current frame even if unchanged.
+  // overlay. `realNow` (a RAF timestamp) throttles continuous playback; omit it
+  // for immediate renders. `force` re-applies the current frame even if unchanged.
   const renderAt = (ms, { force = false, realNow = null } = {}) => {
     if (isRoutePlanMode()) {
-      renderRoutePlanTick(ms, realNow)
+      routePlan.renderTick(ms, realNow)
       return
     }
     if (state.smooth && smooth.hasTracks()) smooth.renderTick(ms, realNow)
@@ -379,7 +238,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
     state.currentTime = clamped
     if (isRoutePlanMode()) {
-      renderRoutePlan(clamped)
+      routePlan.render(clamped)
       return
     }
     selectedTrack.updateTrackProgress()
@@ -483,7 +342,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!dataId) return
     pause()
     live.exitLive()
-    clearRoutePlan()
+    routePlan.clear()
     if (isRoutePlanMode()) state.mode = 'history'
     selectedTrack.clearSelection()
     state.loading = true
@@ -542,7 +401,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     frame.invalidate()
     frame.reset()
     selectedTrack.reset()
-    clearRoutePlan()
+    routePlan.clear()
     dataLayers.exitSimulator()
     layerEntry = null
     Object.assign(state, createState())
@@ -557,8 +416,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       return
     }
     stop()
-    routePlanTracks = built.tracks
-    routeSimHeatGeoJson.value = buildRouteHeatGeoJson(routeResult)
+    routePlan.setTracks(built.tracks, buildRouteHeatGeoJson(routeResult))
     state.active = true
     state.mode = 'route-plan'
     state.dataId = 'route-plan'
@@ -572,7 +430,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     state.playFrom = state.from
     state.playTo = state.to
     state.currentTime = state.from
-    renderRoutePlan(state.currentTime)
+    routePlan.render(state.currentTime)
     play()
   }
 
@@ -597,12 +455,12 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     simulatorState: state,
     simulatorCandidates: candidates,
     simulatorSpeeds: SPEED_PRESETS,
-    routeSimGeoJson,
-    routeSimTraveledGeoJson,
-    routeSimRemainingGeoJson,
-    routeSimHeatGeoJson,
-    routeSimProgress,
-    selectedRouteVehicle,
+    routeSimGeoJson: routePlan.pointsGeoJson,
+    routeSimTraveledGeoJson: routePlan.traveledGeoJson,
+    routeSimRemainingGeoJson: routePlan.remainingGeoJson,
+    routeSimHeatGeoJson: routePlan.heatGeoJson,
+    routeSimProgress: routePlan.progress,
+    selectedRouteVehicle: routePlan.selectedVehicle,
     startRouteSimulation,
     toggleRouteHeatmap: () => {
       if (isRoutePlanMode()) state.routeHeatmap = !state.routeHeatmap
@@ -620,11 +478,11 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     },
     toggleSimulatorAutoFollow: selectedTrack.toggleAutoFollow,
     selectSimulatorFeature: (payload) => {
-      if (isRoutePlanMode()) selectRouteVehicle(payload)
+      if (isRoutePlanMode()) routePlan.selectVehicle(payload)
       else selectedTrack.selectFeature(payload)
     },
     clearSimulatorSelection: () => {
-      if (isRoutePlanMode()) selectRouteVehicle(null)
+      if (isRoutePlanMode()) routePlan.selectVehicle(null)
       else selectedTrack.clearSelection()
     },
     toggleSimulatorTrack: selectedTrack.toggleSelectedTrack,
