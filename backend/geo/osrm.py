@@ -100,29 +100,68 @@ def _leg_coordinates(leg):
 
 
 def _route_chunk_legs(base_url, profile, chunk, timeout):
-    """Per-pair leg geometries for one chunk, isolating unroutable pairs.
+    """Per-pair ``(coords, leg)`` for one chunk, isolating unroutable pairs.
 
-    A single bad waypoint (GPS glitch, point outside the routing extract) makes
-    OSRM reject the whole request with 400 NoRoute/NoSegment — which would
-    straight-line hundreds of good legs at once. On a routing error, bisect the
-    chunk and retry each half, so only the genuinely unroutable pair(s) fall
-    back to a straight segment. Transport errors (OSRM down) are httpx
+    ``coords`` is the ``[lng, lat]`` polyline for the pair; ``leg`` is the OSRM
+    leg dict (``steps=true``), or ``None`` when the pair fell back to a straight
+    segment. A single bad waypoint (GPS glitch, point outside the routing
+    extract) makes OSRM reject the whole request with 400 NoRoute/NoSegment —
+    which would straight-line hundreds of good legs at once. On a routing
+    error, bisect the chunk and retry each half, so only the genuinely
+    unroutable pair(s) fall back. Transport errors (OSRM down) are httpx
     exceptions, not RuntimeError, and propagate immediately — no bisecting an
     unreachable server.
     """
     try:
         _coords, legs = fetch_route(base_url, profile, chunk, steps=True, timeout=timeout)
         if len(legs) == len(chunk) - 1:
-            return [_leg_coordinates(leg) for leg in legs]
+            return [(_leg_coordinates(leg), leg) for leg in legs]
     except RuntimeError:
         pass
     if len(chunk) == 2:
-        return [[list(chunk[0]), list(chunk[1])]]
+        return [([list(chunk[0]), list(chunk[1])], None)]
     mid = len(chunk) // 2
     # Overlap by one waypoint so every consecutive pair stays covered.
     left = _route_chunk_legs(base_url, profile, chunk[: mid + 1], timeout)
     right = _route_chunk_legs(base_url, profile, chunk[mid:], timeout)
     return left + right
+
+
+def route_legs_with_details(
+    base_url,
+    profile,
+    coordinates,
+    *,
+    max_waypoints_per_call=DEFAULT_MAX_WAYPOINTS_PER_CALL,
+    max_url_length=DEFAULT_MAX_URL_LENGTH,
+    timeout=DEFAULT_TIMEOUT_SECONDS,
+):
+    """``(coords, leg)`` per consecutive pair in ``coordinates``.
+
+    Entry ``i`` covers ``coordinates[i] -> coordinates[i + 1]``: ``coords`` is
+    its ``[lng, lat]`` polyline and ``leg`` the OSRM leg dict (with steps), or
+    ``None`` for a straight-segment fallback. Waypoints are split into chunks
+    bounded by ``max_waypoints_per_call`` and ``max_url_length``.
+    """
+    if len(coordinates) < 2:
+        raise RuntimeError("route_legs requires at least two coordinates")
+
+    pairs = []
+    start = 0
+    while start < len(coordinates) - 1:
+        end = min(len(coordinates) - 1, start + max_waypoints_per_call - 1)
+        while end > start + 1 and _exceeds_url_limit(
+            base_url, profile, coordinates[start : end + 1], max_url_length
+        ):
+            end -= 1
+        if end <= start:
+            raise RuntimeError("Cannot build a valid OSRM route chunk within the URL limit")
+
+        chunk = coordinates[start : end + 1]
+        pairs.extend(_route_chunk_legs(base_url, profile, chunk, timeout))
+        start = end
+
+    return pairs
 
 
 def route_legs(
@@ -138,25 +177,17 @@ def route_legs(
 
     Returns a list of length ``len(coordinates) - 1``; entry ``i`` is the
     ``[lng, lat]`` polyline from ``coordinates[i]`` to ``coordinates[i + 1]``.
-    Waypoints are split into chunks bounded by ``max_waypoints_per_call`` and
-    ``max_url_length``, then the legs are concatenated across chunks.
+    See :func:`route_legs_with_details` for the variant that also returns the
+    OSRM leg dicts.
     """
-    if len(coordinates) < 2:
-        raise RuntimeError("route_legs requires at least two coordinates")
-
-    leg_geometries = []
-    start = 0
-    while start < len(coordinates) - 1:
-        end = min(len(coordinates) - 1, start + max_waypoints_per_call - 1)
-        while end > start + 1 and _exceeds_url_limit(
-            base_url, profile, coordinates[start : end + 1], max_url_length
-        ):
-            end -= 1
-        if end <= start:
-            raise RuntimeError("Cannot build a valid OSRM route chunk within the URL limit")
-
-        chunk = coordinates[start : end + 1]
-        leg_geometries.extend(_route_chunk_legs(base_url, profile, chunk, timeout))
-        start = end
-
-    return leg_geometries
+    return [
+        coords
+        for coords, _leg in route_legs_with_details(
+            base_url,
+            profile,
+            coordinates,
+            max_waypoints_per_call=max_waypoints_per_call,
+            max_url_length=max_url_length,
+            timeout=timeout,
+        )
+    ]

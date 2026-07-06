@@ -399,7 +399,29 @@ class GarbageVrpApiTestCase(unittest.TestCase):
         self.assertEqual(422, response.status_code)
 
 
+def _fake_osrm_fetch_route(calls):
+    """steps=true-shaped fetch_route fake echoing the chunk as leg geometries."""
+
+    def fake_fetch(base_url, profile, chunk, *, steps=False, timeout=None):
+        calls.append(list(chunk))
+        legs = [
+            {
+                "distance": 100,
+                "duration": 10,
+                "steps": [
+                    {"geometry": {"coordinates": [list(chunk[i]), list(chunk[i + 1])]}}
+                ],
+            }
+            for i in range(len(chunk) - 1)
+        ]
+        return [list(c) for c in chunk], legs
+
+    return fake_fetch
+
+
 class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
+    # Route geometry now rides the shared chunked client in backend.geo.osrm,
+    # so the chunking knobs are exercised through that module's seams.
     def test_build_route_geometry_from_osrm_splits_by_waypoint_limit(self):
         coordinates = [
             (120.650001, 24.140001),
@@ -410,17 +432,7 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         ]
         calls = []
 
-        def fake_fetch(osrm_base_url, profile, chunk_coordinates):
-            calls.append(chunk_coordinates)
-            return (
-                {
-                    "type": "LineString",
-                    "coordinates": [[lng, lat] for lng, lat in chunk_coordinates],
-                },
-                [{"distance": 100, "duration": 10} for _ in range(len(chunk_coordinates) - 1)],
-            )
-
-        with mock.patch("backend.services.vrp.osrm_client._fetch_osrm_route", side_effect=fake_fetch):
+        with mock.patch("backend.geo.osrm.fetch_route", side_effect=_fake_osrm_fetch_route(calls)):
             geometry, legs = _build_route_geometry_from_osrm(
                 coordinates=coordinates,
                 osrm_base_url="http://localhost:5002",
@@ -432,6 +444,7 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         self.assertEqual(2, len(calls))
         self.assertEqual(5, len(geometry["coordinates"]))
         self.assertEqual(4, len(legs))
+        self.assertTrue(all(isinstance(leg, dict) for leg in legs))
 
     def test_build_route_geometry_from_osrm_splits_by_url_length(self):
         coordinates = [
@@ -442,24 +455,11 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         ]
         calls = []
 
-        def fake_fetch(osrm_base_url, profile, chunk_coordinates):
-            calls.append(chunk_coordinates)
-            return (
-                {
-                    "type": "LineString",
-                    "coordinates": [[lng, lat] for lng, lat in chunk_coordinates],
-                },
-                [{"distance": 100, "duration": 10} for _ in range(len(chunk_coordinates) - 1)],
-            )
+        def fake_exceeds(_base_url, _profile, chunk, _max_url_length):
+            return len(chunk) > 2
 
-        def fake_exceeds(_osrm_base_url, _profile, chunk_coordinates, _max_url_length):
-            return len(chunk_coordinates) > 2
-
-        with mock.patch("backend.services.vrp.osrm_client._fetch_osrm_route", side_effect=fake_fetch):
-            with mock.patch(
-                "backend.services.vrp.osrm_client._route_request_exceeds_limit",
-                side_effect=fake_exceeds,
-            ):
+        with mock.patch("backend.geo.osrm.fetch_route", side_effect=_fake_osrm_fetch_route(calls)):
+            with mock.patch("backend.geo.osrm._exceeds_url_limit", side_effect=fake_exceeds):
                 geometry, legs = _build_route_geometry_from_osrm(
                     coordinates=coordinates,
                     osrm_base_url="http://localhost:5002",
@@ -471,6 +471,35 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         self.assertEqual(3, len(calls))
         self.assertEqual(4, len(geometry["coordinates"]))
         self.assertEqual(3, len(legs))
+
+    def test_unroutable_stop_degrades_only_its_leg(self):
+        # A stop OSRM rejects (400 NoSegment) must not straight-line the whole
+        # route: bisect isolates it and the solver sees `None` for that leg.
+        coordinates = [
+            (120.650001, 24.140001),
+            (120.660001, 24.150001),
+            (120.670001, 24.160001),
+        ]
+        bad = coordinates[1]
+        good_fetch = _fake_osrm_fetch_route([])
+
+        def fake_fetch(base_url, profile, chunk, *, steps=False, timeout=None):
+            if bad in chunk:
+                raise RuntimeError("OSRM route request failed: 400 NoSegment")
+            return good_fetch(base_url, profile, chunk, steps=steps, timeout=timeout)
+
+        with mock.patch("backend.geo.osrm.fetch_route", side_effect=fake_fetch):
+            geometry, legs = _build_route_geometry_from_osrm(
+                coordinates=coordinates,
+                osrm_base_url="http://localhost:5002",
+                profile="driving",
+                max_waypoints_per_call=1500,
+                max_url_length=7800,
+            )
+
+        # Both pairs touch the bad point -> both straight, but present.
+        self.assertEqual([None, None], legs)
+        self.assertEqual(3, len(geometry["coordinates"]))
 
 
 class GarbageVrpSnapToRoadHelperTestCase(unittest.TestCase):
