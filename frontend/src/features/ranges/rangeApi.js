@@ -31,3 +31,19 @@ export const fetchRangeGeoJson = async (apiBaseUrl, payload) => {
 
   return response.json()
 }
+
+export const fetchRangePick = async (apiBaseUrl, payload) => {
+  const response = await fetch(`${apiBaseUrl}/regions/pick`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+
+  if (!response.ok) {
+    throw new Error(`範圍點選失敗：${response.status}`)
+  }
+
+  return response.json()
+}

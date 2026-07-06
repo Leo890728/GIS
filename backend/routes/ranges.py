@@ -1,6 +1,6 @@
 from flask import Blueprint, abort, current_app, request
 
-from backend.services.regions_service import split_codes
+from backend.services.regions_service import RegionsServiceError, split_codes
 
 
 bp = Blueprint("ranges", __name__)
@@ -45,3 +45,26 @@ def range_geojson():
         stat_zone_1_codes,
         stat_zone_2_codes,
     )
+
+
+@bp.post("/regions/pick")
+def range_pick():
+    payload = request.get_json(silent=True) or {}
+    level = str(payload.get("level") or "").strip()
+
+    try:
+        lng = float(payload.get("lng"))
+        lat = float(payload.get("lat"))
+    except (TypeError, ValueError):
+        abort(400, description="lng and lat must be numbers")
+
+    if lng < -180 or lng > 180 or lat < -90 or lat > 90:
+        abort(400, description="lng/lat out of WGS84 bounds")
+
+    regions_service = current_app.config["REGIONS_SERVICE"]
+    try:
+        return regions_service.pick_range_by_point(lng, lat, level)
+    except ValueError as err:
+        abort(400, description=str(err))
+    except RegionsServiceError as err:
+        abort(500, description=str(err))

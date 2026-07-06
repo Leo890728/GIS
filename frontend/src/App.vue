@@ -23,8 +23,13 @@ const {
   selectedRangeGeoJson,
   rangeNodeLoading,
   selectedRangeRequest,
+  pickModeEnabled: rangePickModeEnabled,
+  pickLevel: rangePickLevel,
   toggleRange,
-  loadRangeChildren
+  loadRangeChildren,
+  toggleRangeByPoint,
+  setPickModeEnabled: setRangePickModeEnabled,
+  setPickLevel: setRangePickLevel
 } = useRanges(API_BASE_URL)
 const {
   dataLayerState,
@@ -138,6 +143,8 @@ const handleToggleRouteLayer = (layerKey) => {
       :range-point-filter-enabled="rangePointFilterEnabled"
       :selected-range-ids="selectedRangeIds"
       :range-node-loading="rangeNodeLoading"
+      :range-pick-mode-enabled="rangePickModeEnabled"
+      :range-pick-level="rangePickLevel"
       :simulator-state="simulatorState"
       :simulator-candidates="simulatorCandidates"
       :simulator-speeds="simulatorSpeeds"
@@ -147,6 +154,8 @@ const handleToggleRouteLayer = (layerKey) => {
       @set-basemap="setBasemap"
       @toggle-range="toggleRange"
       @expand-range="loadRangeChildren"
+      @set-range-pick-mode-enabled="setRangePickModeEnabled"
+      @set-range-pick-level="setRangePickLevel"
       @toggle-data-layer="toggleDataLayer"
       @set-data-layer-mode="setDataLayerMode"
       @refresh-data-layer="refreshDataLayerByKey"
@@ -179,6 +188,8 @@ const handleToggleRouteLayer = (layerKey) => {
         :route-anchor-geo-json="routeAnchorGeoJson"
         :route-layer-visibility="routeLayerVisibility"
         :route-pick-mode="pickMode"
+        :range-pick-mode-enabled="rangePickModeEnabled"
+        :range-pick-level="rangePickLevel"
         :simulator-state="simulatorState"
         :simulator-speeds="simulatorSpeeds"
         :route-sim-geo-json="routeSimGeoJson"
@@ -192,6 +203,7 @@ const handleToggleRouteLayer = (layerKey) => {
         @toggle-data-layer="toggleDataLayer"
         @toggle-route-layer="handleToggleRouteLayer"
         @route-map-click="handleMapDepotPick"
+        @range-map-click="toggleRangeByPoint"
         @simulator-set-time="setSimulatorTime"
         @simulator-toggle-play="toggleSimulatorPlay"
         @simulator-set-speed="setSimulatorSpeed"

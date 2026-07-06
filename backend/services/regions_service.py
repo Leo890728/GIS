@@ -19,6 +19,58 @@ from backend.services.regions_presentation import (
 __all__ = ["split_codes", "make_range_node", "RegionsService", "RegionsServiceError"]
 
 
+# `ancestors` maps each *parent* level → the column carrying its code in this
+# table. It excludes the level itself (that is `code_col`); the frontend uses
+# these to walk the lazy stat-zone tree down to the picked node.
+RANGE_PICK_SPECS = {
+    "county": {
+        "table": "county",
+        "code_col": "countycode",
+        "name_col": "countyname",
+        "ancestors": {},
+    },
+    "township": {
+        "table": "township",
+        "code_col": "towncode",
+        "name_col": "townname",
+        "ancestors": {"county": "countycode"},
+    },
+    "village": {
+        "table": "village",
+        "code_col": "villcode",
+        "name_col": "villname",
+        "ancestors": {"county": "countycode", "township": "towncode"},
+    },
+    "stat_zone_2": {
+        "table": "stat_zone_2",
+        "code_col": "code2",
+        "name_col": None,
+        "ancestors": {"county": "county_id", "township": "town_id"},
+    },
+    "stat_zone_1": {
+        "table": "stat_zone_1",
+        "code_col": "code1",
+        "name_col": None,
+        "ancestors": {
+            "county": "county_id",
+            "township": "town_id",
+            "stat_zone_2": "code2",
+        },
+    },
+    "stat_zone": {
+        "table": "stat_zone",
+        "code_col": "codebase",
+        "name_col": None,
+        "ancestors": {
+            "county": "county_id",
+            "township": "town_id",
+            "stat_zone_2": "code2",
+            "stat_zone_1": "code1",
+        },
+    },
+}
+
+
 def split_codes(value):
     if not value:
         return []
@@ -229,6 +281,71 @@ class RegionsService:
             conn.close()
 
         return {"type": "FeatureCollection", "features": features}
+
+    def pick_range_by_point(self, lng, lat, level):
+        """Return the boundary code at a lng/lat for the selected range level."""
+        if level not in RANGE_PICK_SPECS:
+            raise ValueError(f"unsupported range pick level: {level}")
+
+        spec = RANGE_PICK_SPECS[level]
+        table = spec["table"]
+        code_col = spec["code_col"]
+        name_col = spec["name_col"]
+        ancestors = spec["ancestors"]
+        name_select = f"{name_col} AS name" if name_col else f"{code_col} AS name"
+        ancestor_select = ", ".join(
+            f"{column} AS ancestor_{ancestor_level}"
+            for ancestor_level, column in ancestors.items()
+        )
+        select_expr = f"{code_col} AS code, {name_select}"
+        if ancestor_select:
+            select_expr = f"{select_expr}, {ancestor_select}"
+        indexed_sql = (
+            f"SELECT {select_expr}"
+            f" FROM {table}"
+            f" WHERE ROWID IN ("
+            f"   SELECT pkid FROM idx_{table}_GEOMETRY"
+            f"   WHERE xmin <= ? AND xmax >= ? AND ymin <= ? AND ymax >= ?"
+            f" )"
+            f" AND ST_Covers(GEOMETRY, MakePoint(?, ?, 4326)) = 1"
+            f" LIMIT 1"
+        )
+        fallback_sql = (
+            f"SELECT {select_expr}"
+            f" FROM {table}"
+            f" WHERE ST_Covers(GEOMETRY, MakePoint(?, ?, 4326)) = 1"
+            f" LIMIT 1"
+        )
+
+        conn = self._connect_bounds(load_spatialite=True)
+        try:
+            try:
+                row = conn.execute(indexed_sql, (lng, lng, lat, lat, lng, lat)).fetchone()
+            except sqlite3.OperationalError as err:
+                # A missing spatial index falls back to a plain scan; any other
+                # OperationalError (e.g. SpatiaLite not loaded) is a real fault.
+                if "idx_" not in str(err):
+                    raise RegionsServiceError(f"range pick query failed: {err}") from err
+                row = conn.execute(fallback_sql, (lng, lat)).fetchone()
+        except sqlite3.OperationalError as err:
+            raise RegionsServiceError(f"range pick query failed: {err}") from err
+        finally:
+            conn.close()
+
+        if row is None:
+            return {"hit": False, "level": level}
+
+        result = {"hit": True, "level": level, "code": str(row["code"])}
+        if row["name"]:
+            result["name"] = str(row["name"])
+        ancestor_values = {}
+        for ancestor_level in ancestors.keys():
+            value = row[f"ancestor_{ancestor_level}"]
+            if value is not None and str(value) != "":
+                ancestor_values[ancestor_level] = str(value)
+        if ancestor_values:
+            result["ancestors"] = ancestor_values
+        return result
 
     # ── stat zone population ──────────────────────────────────────────────────
 

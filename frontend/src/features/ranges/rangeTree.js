@@ -40,6 +40,22 @@ export const findRangeNode = (nodes, rangeId) => {
   return null
 }
 
+// Locate a node by its boundary level + code (map-click uses these, not ids).
+export const findRangeNodeByCode = (nodes, level, code) => {
+  const targetCode = String(code || '')
+  for (const node of nodes || []) {
+    if (node.level === level && String(node.code || '') === targetCode) {
+      return node
+    }
+    const childMatch = findRangeNodeByCode(node.children, level, code)
+    if (childMatch) {
+      return childMatch
+    }
+  }
+
+  return null
+}
+
 export const isRangeFullySelected = (range, selectedSet) => {
   const leafIds = getLeafRangeIds(range)
   return leafIds.length > 0 && leafIds.every((id) => selectedSet.has(id))
@@ -50,8 +66,19 @@ export const isRangePartiallySelected = (range, selectedSet) => {
   return selectedCount > 0 && !isRangeFullySelected(range, selectedSet)
 }
 
+// Boundary levels selectable via map-click, ordered coarse → fine. The dropdown
+// sends `level` to the backend, which resolves the clicked point to a code.
+export const RANGE_PICK_LEVELS = [
+  { level: 'county', label: '縣市' },
+  { level: 'township', label: '鄉鎮市區' },
+  { level: 'village', label: '村里' },
+  { level: 'stat_zone_2', label: '二級發布區' },
+  { level: 'stat_zone_1', label: '一級發布區' },
+  { level: 'stat_zone', label: '最小統計區' }
+]
+
 // range node level → request payload key
-const LEVEL_CODE_KEYS = {
+export const LEVEL_CODE_KEYS = {
   county: 'countyCodes',
   township: 'townCodes',
   village: 'villageCodes',
@@ -60,16 +87,36 @@ const LEVEL_CODE_KEYS = {
   stat_zone: 'statZoneCodes'
 }
 
+export const emptyRangeRequest = () => ({
+  countyCodes: [],
+  townCodes: [],
+  villageCodes: [],
+  statZone2Codes: [],
+  statZone1Codes: [],
+  statZoneCodes: []
+})
+
+// Union two range requests, de-duplicating codes per level. Used to fold the
+// map-click fallback selection into the tree-derived request.
+export const mergeRangeRequests = (...requests) => {
+  const merged = emptyRangeRequest()
+  for (const key of Object.keys(merged)) {
+    const seen = new Set()
+    for (const request of requests) {
+      for (const code of request?.[key] || []) {
+        if (!seen.has(code)) {
+          seen.add(code)
+          merged[key].push(code)
+        }
+      }
+    }
+  }
+  return merged
+}
+
 export const buildRangeRequest = (rangeTree, selectedRangeIds) => {
   const selectedSet = new Set(selectedRangeIds)
-  const request = {
-    countyCodes: [],
-    townCodes: [],
-    villageCodes: [],
-    statZone2Codes: [],
-    statZone1Codes: [],
-    statZoneCodes: []
-  }
+  const request = emptyRangeRequest()
 
   const collect = (node) => {
     if (!node?.id) return

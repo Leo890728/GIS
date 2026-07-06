@@ -81,6 +81,14 @@ const props = defineProps({
     type: Object,
     default: () => ({})
   },
+  rangePickModeEnabled: {
+    type: Boolean,
+    default: false
+  },
+  rangePickLevel: {
+    type: String,
+    default: 'township'
+  },
   simulatorState: {
     type: Object,
     required: true
@@ -105,6 +113,8 @@ const emit = defineEmits([
   'set-basemap',
   'toggle-range',
   'expand-range',
+  'set-range-pick-mode-enabled',
+  'set-range-pick-level',
   'toggle-data-layer',
   'set-data-layer-mode',
   'refresh-data-layer',
@@ -317,8 +327,12 @@ const drawingTools = [
         :range-trees="rangeTrees"
         :selected-range-ids="selectedRangeIds"
         :range-node-loading="rangeNodeLoading"
+        :pick-mode-enabled="rangePickModeEnabled"
+        :pick-level="rangePickLevel"
         @toggle-range="emit('toggle-range', $event)"
         @expand-range="emit('expand-range', $event)"
+        @set-pick-mode-enabled="emit('set-range-pick-mode-enabled', $event)"
+        @set-pick-level="emit('set-range-pick-level', $event)"
       />
 
       <RoutePanel

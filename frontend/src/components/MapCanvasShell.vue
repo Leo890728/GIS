@@ -62,6 +62,14 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  rangePickModeEnabled: {
+    type: Boolean,
+    default: false
+  },
+  rangePickLevel: {
+    type: String,
+    default: 'township'
+  },
   simulatorState: {
     type: Object,
     default: () => ({ active: false })
@@ -105,6 +113,7 @@ const emit = defineEmits([
   'toggle-data-layer',
   'toggle-route-layer',
   'route-map-click',
+  'range-map-click',
   'simulator-set-time',
   'simulator-toggle-play',
   'simulator-set-speed',
@@ -214,6 +223,19 @@ const { addRouteLayers, updateRouteGeoJson, updateRouteVisibility } = useMapRout
   routeLayerVisibilityRef
 )
 
+// True when a click should be consumed by range picking (not a normal click).
+const handleRangePickClick = (event) => {
+  if (!props.rangePickModeEnabled) return false
+  emit('range-map-click', {
+    level: props.rangePickLevel,
+    lng: Number(event.lngLat.lng.toFixed(6)),
+    lat: Number(event.lngLat.lat.toFixed(6))
+  })
+  return true
+}
+
+const isPickCursorActive = () => props.rangePickModeEnabled || ['start', 'end'].includes(props.routePickMode)
+
 const refreshLoading = () => {
   if (!map.value) return
   status.value.loading = !map.value.areTilesLoaded()
@@ -299,7 +321,7 @@ const hideDataHoverPopup = () => {
     dataHoverPopup.value = null
   }
   if (map.value) {
-    map.value.getCanvas().style.cursor = ['start', 'end'].includes(props.routePickMode) ? 'crosshair' : ''
+    map.value.getCanvas().style.cursor = isPickCursorActive() ? 'crosshair' : ''
   }
 }
 
@@ -525,6 +547,7 @@ const createMap = () => {
       })
       return
     }
+    if (handleRangePickClick(event)) return
     handleSimulatorClick(event)
   })
   map.value.on('mouseout', hideDataHoverPopup)
@@ -630,10 +653,10 @@ watch(
 )
 
 watch(
-  () => props.routePickMode,
+  [() => props.routePickMode, () => props.rangePickModeEnabled],
   () => {
     if (!map.value) return
-    map.value.getCanvas().style.cursor = ['start', 'end'].includes(props.routePickMode) ? 'crosshair' : ''
+    map.value.getCanvas().style.cursor = isPickCursorActive() ? 'crosshair' : ''
   }
 )
 
