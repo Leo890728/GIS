@@ -96,6 +96,8 @@ import { buildTruckIcon } from './icons'
  * @property {IconConfig[]}       [icons=[]]
  * @property {StyleHandlerConfig} [styleHandler]
  * @property {TooltipConfig}      [tooltip]
+ * @property {Object<string,string>} [propertyLabels]  extra field→label pairs for
+ *   the analytics drawer (tooltip item labels are merged in automatically)
  */
 
 /** @returns {Object<string, DataSourceConfig>} */
@@ -143,6 +145,14 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
         { label: '狀態', field: 'status', format: 'number', digits: 0 },
         { label: '方向', field: 'direct' }
       ]
+    },
+    // Extra field labels beyond the tooltip items (analytics drawer shows every
+    // property of a selected entity; tooltip labels are merged in automatically).
+    propertyLabels: {
+      car_no: '車號',
+      cartype: '車種',
+      OverSpeedText: '是否超速',
+      SpeedBand: '速度級距'
     },
     style: {
       points: { color: '#5ec8f2', iconId: 'tcg-v2-fallback', pointSize: 6 }
@@ -334,6 +344,16 @@ const toLayerEntry = (entry) => {
       titleTemplate: '',
       items: [],
       ...(entry.tooltip || {})
+    },
+    // field -> human label for the analytics drawer: tooltip labels first,
+    // topped up with the entry's explicit extras.
+    propertyLabels: {
+      ...Object.fromEntries(
+        (entry.tooltip?.items || [])
+          .filter((item) => item.field && item.label)
+          .map((item) => [item.field, item.label])
+      ),
+      ...(entry.propertyLabels || {})
     },
     style
   }

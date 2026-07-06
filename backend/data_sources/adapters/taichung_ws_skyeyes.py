@@ -48,7 +48,15 @@ class TaichungWsSkyeyesAdapter(BaseDataSourceAdapter):
 
     def fetch_payload(self, fetcher, source):
         retries = max(1, int(source.get("retries", 2)))
-        last_error = None
+
+        # 先用現有 session(cookie 保存在共用的 http client)直接打資料端點,
+        # session 未過期時就不必重新打 bootstrap URL。
+        try:
+            return fetcher(self.build_request(source))
+        except Exception as err:  # pragma: no cover
+            last_error = err
+
+        # 直接請求失敗(session 過期 / 尚未建立 cookie)才 bootstrap 重建 session。
         for bootstrap_url in self._bootstrap_urls(source):
             for _ in range(retries):
                 try:
@@ -64,9 +72,7 @@ class TaichungWsSkyeyesAdapter(BaseDataSourceAdapter):
                 except Exception as err:  # pragma: no cover
                     last_error = err
                     continue
-        if last_error:
-            raise last_error
-        raise RuntimeError("v2 fetch failed without specific error")
+        raise last_error
 
     def build_request(self, source):
         request_data = super().build_request(source)

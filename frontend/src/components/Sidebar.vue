@@ -121,6 +121,7 @@ const emit = defineEmits([
   'step-simulator',
   'toggle-simulator-smooth',
   'select-simulator-segment',
+  'simulate-route-plan',
   'stop-simulator'
 ])
 
@@ -340,6 +341,7 @@ const drawingTools = [
         :simulator-state="simulatorState"
         :simulator-candidates="simulatorCandidates"
         :simulator-speeds="simulatorSpeeds"
+        :route-plan-routes="routeRows"
         @select-dataset="emit('select-simulator-dataset', $event)"
         @set-time="emit('set-simulator-time', $event)"
         @toggle-play="emit('toggle-simulator-play')"
@@ -347,6 +349,7 @@ const drawingTools = [
         @step="emit('step-simulator', $event)"
         @toggle-smooth="emit('toggle-simulator-smooth')"
         @select-segment="emit('select-simulator-segment', $event)"
+        @simulate-route-plan="emit('simulate-route-plan')"
         @stop="emit('stop-simulator')"
       />
 
@@ -388,6 +391,8 @@ const drawingTools = [
 
 <style>
 .sidebar {
+  height: 100vh;
+  overflow-y:auto;
   background: #111a2b;
   border-right: 1px solid #2f4668;
   padding: 20px 16px;

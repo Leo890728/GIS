@@ -183,6 +183,60 @@ class GarbageVrpApiTestCase(unittest.TestCase):
         self.assertIn("totalDemandKg", body["summary"])
         self.assertIn("geometryFallbackRouteCount", body["summary"])
 
+    def test_solve_garbage_auto_depot_uses_nearest_disposal(self):
+        # Without depot.start/end the fleet is based at the disposal point
+        # nearest the pickup area: Custom A/B sit around (120.66, 24.15), so
+        # Incinerator 1 at (120.65, 24.14) wins over Incinerator 2 at (120.75, 24.24).
+        payload = self._base_payload()
+        del payload["depot"]
+        payload["nodeSource"] = {
+            "mode": "dataset",
+            "dataId": "custom_nodes",
+            "demandField": "pop",
+            "demandMultiplierKg": 1.36,
+            "limit": 1000,
+        }
+        payload["range"] = {
+            "countyCodes": [],
+            "townCodes": [],
+            "villageCodes": [],
+            "statZoneCodes": []
+        }
+        payload["aggregation"] = {
+            "enabled": False,
+            "cellMeters": 500,
+            "maxNodesBeforeAggregate": 100,
+        }
+
+        def fake_osrm_table(coordinates, osrm_base_url, profile):
+            size = len(coordinates)
+            zeros = [[0 for _ in range(size)] for _ in range(size)]
+            return zeros, zeros
+
+        captured = {}
+
+        def fake_solve_vrp(**kwargs):
+            captured["nodes"] = kwargs["nodes"]
+            return {
+                "routes": [],
+                "dropped_nodes": [],
+                "total_distance": 0,
+                "total_duration": 0,
+            }
+
+        with mock.patch("backend.services.garbage_vrp_service._build_osrm_table", side_effect=fake_osrm_table):
+            with mock.patch("backend.services.garbage_vrp_service._solve_vrp", side_effect=fake_solve_vrp):
+                response = self.client.post("/api/vrp/solve-garbage", json=payload)
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertEqual([120.65, 24.14], body["depot"]["start"])
+        self.assertEqual([120.65, 24.14], body["depot"]["end"])
+        depot_start = captured["nodes"][0]
+        self.assertEqual("depot-start", depot_start["id"])
+        self.assertEqual(120.65, depot_start["lng"])
+        self.assertEqual(24.14, depot_start["lat"])
+
     def test_solve_garbage_dataset_mode_success(self):
         payload = self._base_payload()
         payload["nodeSource"] = {
@@ -345,7 +399,29 @@ class GarbageVrpApiTestCase(unittest.TestCase):
         self.assertEqual(422, response.status_code)
 
 
+def _fake_osrm_fetch_route(calls):
+    """steps=true-shaped fetch_route fake echoing the chunk as leg geometries."""
+
+    def fake_fetch(base_url, profile, chunk, *, steps=False, timeout=None):
+        calls.append(list(chunk))
+        legs = [
+            {
+                "distance": 100,
+                "duration": 10,
+                "steps": [
+                    {"geometry": {"coordinates": [list(chunk[i]), list(chunk[i + 1])]}}
+                ],
+            }
+            for i in range(len(chunk) - 1)
+        ]
+        return [list(c) for c in chunk], legs
+
+    return fake_fetch
+
+
 class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
+    # Route geometry now rides the shared chunked client in backend.geo.osrm,
+    # so the chunking knobs are exercised through that module's seams.
     def test_build_route_geometry_from_osrm_splits_by_waypoint_limit(self):
         coordinates = [
             (120.650001, 24.140001),
@@ -356,17 +432,7 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         ]
         calls = []
 
-        def fake_fetch(osrm_base_url, profile, chunk_coordinates):
-            calls.append(chunk_coordinates)
-            return (
-                {
-                    "type": "LineString",
-                    "coordinates": [[lng, lat] for lng, lat in chunk_coordinates],
-                },
-                [{"distance": 100, "duration": 10} for _ in range(len(chunk_coordinates) - 1)],
-            )
-
-        with mock.patch("backend.services.vrp.osrm_client._fetch_osrm_route", side_effect=fake_fetch):
+        with mock.patch("backend.geo.osrm.fetch_route", side_effect=_fake_osrm_fetch_route(calls)):
             geometry, legs = _build_route_geometry_from_osrm(
                 coordinates=coordinates,
                 osrm_base_url="http://localhost:5002",
@@ -378,6 +444,7 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         self.assertEqual(2, len(calls))
         self.assertEqual(5, len(geometry["coordinates"]))
         self.assertEqual(4, len(legs))
+        self.assertTrue(all(isinstance(leg, dict) for leg in legs))
 
     def test_build_route_geometry_from_osrm_splits_by_url_length(self):
         coordinates = [
@@ -388,24 +455,11 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         ]
         calls = []
 
-        def fake_fetch(osrm_base_url, profile, chunk_coordinates):
-            calls.append(chunk_coordinates)
-            return (
-                {
-                    "type": "LineString",
-                    "coordinates": [[lng, lat] for lng, lat in chunk_coordinates],
-                },
-                [{"distance": 100, "duration": 10} for _ in range(len(chunk_coordinates) - 1)],
-            )
+        def fake_exceeds(_base_url, _profile, chunk, _max_url_length):
+            return len(chunk) > 2
 
-        def fake_exceeds(_osrm_base_url, _profile, chunk_coordinates, _max_url_length):
-            return len(chunk_coordinates) > 2
-
-        with mock.patch("backend.services.vrp.osrm_client._fetch_osrm_route", side_effect=fake_fetch):
-            with mock.patch(
-                "backend.services.vrp.osrm_client._route_request_exceeds_limit",
-                side_effect=fake_exceeds,
-            ):
+        with mock.patch("backend.geo.osrm.fetch_route", side_effect=_fake_osrm_fetch_route(calls)):
+            with mock.patch("backend.geo.osrm._exceeds_url_limit", side_effect=fake_exceeds):
                 geometry, legs = _build_route_geometry_from_osrm(
                     coordinates=coordinates,
                     osrm_base_url="http://localhost:5002",
@@ -417,6 +471,35 @@ class GarbageVrpRouteGeometryHelperTestCase(unittest.TestCase):
         self.assertEqual(3, len(calls))
         self.assertEqual(4, len(geometry["coordinates"]))
         self.assertEqual(3, len(legs))
+
+    def test_unroutable_stop_degrades_only_its_leg(self):
+        # A stop OSRM rejects (400 NoSegment) must not straight-line the whole
+        # route: bisect isolates it and the solver sees `None` for that leg.
+        coordinates = [
+            (120.650001, 24.140001),
+            (120.660001, 24.150001),
+            (120.670001, 24.160001),
+        ]
+        bad = coordinates[1]
+        good_fetch = _fake_osrm_fetch_route([])
+
+        def fake_fetch(base_url, profile, chunk, *, steps=False, timeout=None):
+            if bad in chunk:
+                raise RuntimeError("OSRM route request failed: 400 NoSegment")
+            return good_fetch(base_url, profile, chunk, steps=steps, timeout=timeout)
+
+        with mock.patch("backend.geo.osrm.fetch_route", side_effect=fake_fetch):
+            geometry, legs = _build_route_geometry_from_osrm(
+                coordinates=coordinates,
+                osrm_base_url="http://localhost:5002",
+                profile="driving",
+                max_waypoints_per_call=1500,
+                max_url_length=7800,
+            )
+
+        # Both pairs touch the bad point -> both straight, but present.
+        self.assertEqual([None, None], legs)
+        self.assertEqual(3, len(geometry["coordinates"]))
 
 
 class GarbageVrpSnapToRoadHelperTestCase(unittest.TestCase):
@@ -509,6 +592,39 @@ class GarbageVrpSnapToRoadHelperTestCase(unittest.TestCase):
         self.assertEqual(0, snapped_count)
         self.assertEqual(120.6501, snapped_nodes[0]["lng"])
         self.assertEqual(24.1401, snapped_nodes[0]["lat"])
+
+    def test_snap_pickup_nodes_to_road_inf_cap_accepts_any_distance(self):
+        # Post-aggregation snap uses an unlimited cap: synthetic centroids must
+        # always land on the road network no matter how far the cell center is.
+        pickup_nodes = [
+            {
+                "id": "agg-0",
+                "type": "pickup",
+                "name": "Aggregated cell 1",
+                "lng": 120.6501,
+                "lat": 24.1401,
+                "demand_kg": 100,
+                "member_count": 5,
+                "source_id": "1",
+            }
+        ]
+
+        with mock.patch(
+            "backend.services.vrp.nodes._fetch_osrm_nearest",
+            return_value={"lng": 120.66, "lat": 24.15, "distance_m": 5000},
+        ):
+            snapped_nodes, snapped_count = _snap_pickup_nodes_to_road(
+                pickup_nodes,
+                enabled=True,
+                max_distance_m=float("inf"),
+                osrm_base_url="http://localhost:5002",
+                profile="driving",
+            )
+
+        self.assertEqual(1, snapped_count)
+        self.assertEqual(120.66, snapped_nodes[0]["lng"])
+        self.assertEqual(24.15, snapped_nodes[0]["lat"])
+        self.assertEqual(5, snapped_nodes[0]["member_count"])
 
 
 if __name__ == "__main__":

@@ -317,6 +317,11 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
     })
   }
 
+  // Identity of the last FeatureCollection pushed per layer. During simulator
+  // playback only that layer's value is replaced each frame; skipping the
+  // untouched layers avoids re-uploading every loaded dataset per frame.
+  const lastPushedData = new Map()
+
   const updateDataLayerGeoJson = () => {
     const map = mapRef.value
     if (!map) return
@@ -325,7 +330,10 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
       if (isVectorEntry(entry)) continue
       const source = map.getSource(entry.sourceId)
       if (source && typeof source.setData === 'function') {
-        source.setData(getDataLayerSourceData(dataLayerGeoJsonRef.value, key))
+        const data = getDataLayerSourceData(dataLayerGeoJsonRef.value, key)
+        if (lastPushedData.get(key) === data) continue
+        lastPushedData.set(key, data)
+        source.setData(data)
       }
     }
   }

@@ -45,6 +45,14 @@ const {
   simulatorState,
   simulatorCandidates,
   simulatorSpeeds,
+  routeSimGeoJson,
+  routeSimTraveledGeoJson,
+  routeSimRemainingGeoJson,
+  routeSimHeatGeoJson,
+  routeSimProgress,
+  selectedRouteVehicle,
+  startRouteSimulation,
+  toggleRouteHeatmap,
   selectSimulatorDataset,
   setSimulatorTime,
   toggleSimulatorPlay,
@@ -67,6 +75,7 @@ const {
 const {
   routeForm,
   routeRuntime,
+  routeResult,
   routeSummary,
   routeRows,
   droppedRows,
@@ -93,6 +102,10 @@ const updateRouteField = ({ key, value }) => {
 
 const handleMapDepotPick = ({ mode, coordinate }) => {
   setDepotCoord(mode, coordinate)
+}
+
+const handleSimulateRoutePlan = () => {
+  startRouteSimulation(routeResult.value)
 }
 
 const handleToggleRouteLayer = (layerKey) => {
@@ -149,6 +162,7 @@ const handleToggleRouteLayer = (layerKey) => {
       @step-simulator="stepSimulatorFrame"
       @toggle-simulator-smooth="toggleSimulatorSmooth"
       @select-simulator-segment="selectSimulatorSegment"
+      @simulate-route-plan="handleSimulateRoutePlan"
       @stop-simulator="stopSimulator"
       @toggle-collapse="isSidebarCollapsed = !isSidebarCollapsed"
     />
@@ -167,6 +181,13 @@ const handleToggleRouteLayer = (layerKey) => {
         :route-pick-mode="pickMode"
         :simulator-state="simulatorState"
         :simulator-speeds="simulatorSpeeds"
+        :route-sim-geo-json="routeSimGeoJson"
+        :route-sim-traveled-geo-json="routeSimTraveledGeoJson"
+        :route-sim-remaining-geo-json="routeSimRemainingGeoJson"
+        :route-sim-heat-geo-json="routeSimHeatGeoJson"
+        :route-sim-progress="routeSimProgress"
+        :route-sim-selected-vehicle="selectedRouteVehicle"
+        :route-vehicle-capacity-kg="Number(routeForm.vehicleCapacityKg) || 0"
         @toggle-layer="toggleLayer"
         @toggle-data-layer="toggleDataLayer"
         @toggle-route-layer="handleToggleRouteLayer"
@@ -179,6 +200,7 @@ const handleToggleRouteLayer = (layerKey) => {
         @simulator-select-segment="selectSimulatorSegment"
         @simulator-set-window="setSimulatorWindow($event.from, $event.to)"
         @simulator-toggle-live="toggleSimulatorLive"
+        @simulator-toggle-route-heatmap="toggleRouteHeatmap"
         @simulator-toggle-follow="toggleSimulatorAutoFollow"
         @simulator-select-feature="selectSimulatorFeature"
         @simulator-toggle-track="toggleSimulatorTrack"

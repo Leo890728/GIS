@@ -44,7 +44,7 @@ const createInitialForm = () => ({
   endCoord: null,
   vehicleCount: 2,
   vehicleCapacityKg: 3000,
-  disposalDataId: 'moenv_incinerators',
+  disposalDataId: 'taichung_cleaning_teams',
   disposalFiltersText: '',
   aggregationEnabled: true,
   aggregationCellMeters: 300,
@@ -58,7 +58,7 @@ const createInitialForm = () => ({
   solverRandomSeed: 1
 })
 
-const getVehicleColor = (index) => VEHICLE_COLOR_PALETTE[index % VEHICLE_COLOR_PALETTE.length]
+export const getVehicleColor = (index) => VEHICLE_COLOR_PALETTE[index % VEHICLE_COLOR_PALETTE.length]
 
 const buildRouteGeoJson = (result) => {
   const routeFeatures = []
@@ -155,17 +155,22 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
 
   const routeAnchorGeoJson = computed(() => {
     const features = []
-    if (Array.isArray(routeForm.value.startCoord)) {
+    // Manually picked coords win; otherwise show the auto depot (nearest
+    // cleaning team) the backend chose for the last solve.
+    const solvedDepot = routeResult.value?.depot || {}
+    const startCoord = Array.isArray(routeForm.value.startCoord) ? routeForm.value.startCoord : solvedDepot.start
+    const endCoord = Array.isArray(routeForm.value.endCoord) ? routeForm.value.endCoord : solvedDepot.end
+    if (Array.isArray(startCoord)) {
       features.push({
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: routeForm.value.startCoord },
+        geometry: { type: 'Point', coordinates: startCoord },
         properties: { type: 'start', name: '起點場站' }
       })
     }
-    if (Array.isArray(routeForm.value.endCoord)) {
+    if (Array.isArray(endCoord)) {
       features.push({
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: routeForm.value.endCoord },
+        geometry: { type: 'Point', coordinates: endCoord },
         properties: { type: 'end', name: '終點場站' }
       })
     }
@@ -241,10 +246,6 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
       error: ''
     }
     try {
-      if (!Array.isArray(routeForm.value.startCoord) || !Array.isArray(routeForm.value.endCoord)) {
-        throw new Error('請在地圖上選取起點與終點場站')
-      }
-
       const nodeFilters = parseJsonObject(routeForm.value.nodeFiltersText, '節點篩選條件')
       const disposalFilters = parseJsonObject(routeForm.value.disposalFiltersText, '處理場篩選條件')
       const selectedRangeRequest = selectedRangeRequestRef?.value || {}
@@ -275,13 +276,20 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
         nodeSource.dataId = routeForm.value.datasetDataId
       }
 
+      // Omitted coords let the backend base the fleet at the disposal point
+      // (cleaning team) nearest the pickup area.
+      const depot = {}
+      if (Array.isArray(routeForm.value.startCoord)) {
+        depot.start = routeForm.value.startCoord
+      }
+      if (Array.isArray(routeForm.value.endCoord)) {
+        depot.end = routeForm.value.endCoord
+      }
+
       const payload = {
         nodeSource,
         range: rangePayload,
-        depot: {
-          start: routeForm.value.startCoord,
-          end: routeForm.value.endCoord
-        },
+        depot,
         vehicles: {
           count: Number(routeForm.value.vehicleCount),
           capacityKg: Number(routeForm.value.vehicleCapacityKg)

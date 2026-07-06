@@ -22,7 +22,7 @@ of serial round-trips.
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import timedelta, timezone
+from datetime import timezone
 from typing import Callable, Optional
 
 from backend.geo.geometry import haversine_m
@@ -82,8 +82,15 @@ def _iso(dt):
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _ms(dt):
+    return int(dt.timestamp() * 1000)
+
+
+# Path vertices carry epoch-ms numbers, not ISO strings: large datasets produce
+# hundreds of thousands of vertices, and a per-vertex ISO string roughly triples
+# the Python/JSON footprint (which OOM'd the worker on big streams).
 def _point(sample):
-    return {"t": _iso(sample["t"]), "lng": sample["lng"], "lat": sample["lat"]}
+    return {"tMs": _ms(sample["t"]), "lng": sample["lng"], "lat": sample["lat"]}
 
 
 def _chain_key(profile, coordinates):
@@ -142,25 +149,25 @@ def _timestamp_leg(coords, ta, tb):
     if not coords:
         return []
     if len(coords) == 1:
-        return [{"t": _iso(ta), "lng": coords[0][0], "lat": coords[0][1]}]
+        return [{"tMs": _ms(ta), "lng": coords[0][0], "lat": coords[0][1]}]
 
     cumulative = [0.0]
     for i in range(len(coords) - 1):
         cumulative.append(cumulative[-1] + haversine_m(coords[i], coords[i + 1]))
     total = cumulative[-1]
-    span_seconds = (tb - ta).total_seconds()
+    base_ms = _ms(ta)
+    span_ms = (tb - ta).total_seconds() * 1000
 
     out = []
     last = len(coords) - 1
     for i, coord in enumerate(coords):
         frac = (cumulative[i] / total) if total > 0 else (i / last)
-        t = ta + timedelta(seconds=span_seconds * frac)
-        out.append({"t": _iso(t), "lng": coord[0], "lat": coord[1]})
+        out.append({"tMs": int(base_ms + span_ms * frac), "lng": coord[0], "lat": coord[1]})
     return out
 
 
 def _segment(path):
-    return {"from": path[0]["t"], "to": path[-1]["t"], "path": path}
+    return {"from": path[0]["tMs"], "to": path[-1]["tMs"], "path": path}
 
 
 def _assemble_segments(samples, leg_coords, breaks):

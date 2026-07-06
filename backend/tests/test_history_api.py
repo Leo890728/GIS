@@ -150,7 +150,7 @@ class HistoryApiTestCase(unittest.TestCase):
             events.append((event, json.loads("\n".join(data_lines)) if data_lines else None))
         return events
 
-    def test_track_stream_emits_progress_then_result(self):
+    def test_track_stream_emits_progress_tracks_then_result(self):
         self._build_three_captures()
         # Inject a router so the stream never touches a real OSRM instance.
         self.service.osrm_leg_router = lambda b, p, coords: [
@@ -171,9 +171,13 @@ class HistoryApiTestCase(unittest.TestCase):
         self.assertEqual(progress[0]["done"], 0)
         self.assertEqual(progress[-1]["done"], progress[-1]["total"])
 
+        # One `track` event per entity; the final result only carries metadata.
+        tracks = [payload for kind, payload in events if kind == "track"]
+        self.assertEqual({"A", "B"}, {t["key"] for t in tracks})
+
         result = events[-1][1]
         self.assertEqual("ds", result["dataId"])
-        self.assertEqual({"A", "B"}, {t["key"] for t in result["tracks"]})
+        self.assertNotIn("tracks", result)
 
     def test_track_stream_unknown_dataset_emits_error(self):
         resp = self.client.get("/data/history/nope/track/stream")

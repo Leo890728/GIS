@@ -41,6 +41,35 @@ const updateNumber = (key, event) => {
   emit('update-route-field', { key, value: Number.isFinite(value) ? value : 0 })
 }
 
+const numberStepOptions = {
+  demandMultiplierKg: { min: 0.001, step: 0.01 },
+  vehicleCount: { min: 1, step: 1 },
+  vehicleCapacityKg: { min: 1, step: 1 },
+  solverTimeLimitSec: { min: 1, step: 1 },
+  nodeLimit: { min: 1, step: 1 },
+  aggregationCellMeters: { min: 10, step: 10 },
+  aggregationThreshold: { min: 10, step: 10 },
+  snapToRoadMaxDistanceMeters: { min: 0, step: 10 }
+}
+
+const decimalPlaces = (value) => {
+  const text = String(value)
+  return text.includes('.') ? text.split('.')[1].length : 0
+}
+
+const stepNumber = (key, direction) => {
+  const options = numberStepOptions[key] || { step: 1 }
+  const current = Number(props.routeForm[key])
+  const base = Number.isFinite(current) ? current : options.min || 0
+  const precision = Math.max(decimalPlaces(options.step), decimalPlaces(options.min || 0))
+  let value = base + direction * options.step
+
+  if (Number.isFinite(options.min)) value = Math.max(options.min, value)
+  if (Number.isFinite(options.max)) value = Math.min(options.max, value)
+
+  emit('update-route-field', { key, value: Number(value.toFixed(precision)) })
+}
+
 const updateCheckbox = (key, event) => {
   emit('update-route-field', { key, value: event.target.checked === true })
 }
@@ -58,6 +87,18 @@ const stopTypeLabels = {
 }
 
 const formatStopType = (value) => stopTypeLabels[value] || value
+
+const formatMeters = (meters) => {
+  if (typeof meters !== 'number' || !Number.isFinite(meters)) return ''
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`
+}
+
+// 指示掛在 leg 終點站上；此處要顯示「從本站往下一站」的走法，故取下一站的
+// instructions 並濾掉「抵達目的地」。
+const nextLegSteps = (route, idx) => {
+  const steps = route?.stops?.[idx + 1]?.instructions || []
+  return steps.filter((step) => step.type !== 'arrive')
+}
 </script>
 
 <template>
@@ -115,78 +156,99 @@ const formatStopType = (value) => stopTypeLabels[value] || value
         </div>
         <div class="field-col">
           <label class="field-label" for="route-demand-mul">換算倍率 (kg)</label>
-          <input
-            id="route-demand-mul"
-            class="field-control"
-            type="number"
-            min="0.001"
-            step="0.01"
-            :value="routeForm.demandMultiplierKg"
-            @input="updateNumber('demandMultiplierKg', $event)"
-          />
+          <div class="number-control">
+            <input
+              id="route-demand-mul"
+              class="field-control number-control-input"
+              type="number"
+              min="0.001"
+              step="0.01"
+              :value="routeForm.demandMultiplierKg"
+              @input="updateNumber('demandMultiplierKg', $event)"
+            />
+            <div class="number-stepper">
+              <button type="button" class="number-stepper-btn" aria-label="增加換算倍率" @click="stepNumber('demandMultiplierKg', 1)">+</button>
+              <button type="button" class="number-stepper-btn" aria-label="減少換算倍率" @click="stepNumber('demandMultiplierKg', -1)">-</button>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="field-row">
         <div class="field-col">
           <label class="field-label" for="route-vehicle-count">車輛數</label>
-          <input
-            id="route-vehicle-count"
-            class="field-control"
-            type="number"
-            min="1"
-            step="1"
-            :value="routeForm.vehicleCount"
-            @input="updateNumber('vehicleCount', $event)"
-          />
+          <div class="number-control">
+            <input
+              id="route-vehicle-count"
+              class="field-control number-control-input"
+              type="number"
+              min="1"
+              step="1"
+              :value="routeForm.vehicleCount"
+              @input="updateNumber('vehicleCount', $event)"
+            />
+            <div class="number-stepper">
+              <button type="button" class="number-stepper-btn" aria-label="增加車輛數" @click="stepNumber('vehicleCount', 1)">+</button>
+              <button type="button" class="number-stepper-btn" aria-label="減少車輛數" @click="stepNumber('vehicleCount', -1)">-</button>
+            </div>
+          </div>
         </div>
         <div class="field-col">
           <label class="field-label" for="route-capacity">容量 (kg)</label>
-          <input
-            id="route-capacity"
-            class="field-control"
-            type="number"
-            min="1"
-            step="1"
-            :value="routeForm.vehicleCapacityKg"
-            @input="updateNumber('vehicleCapacityKg', $event)"
-          />
+          <div class="number-control">
+            <input
+              id="route-capacity"
+              class="field-control number-control-input"
+              type="number"
+              min="1"
+              step="1"
+              :value="routeForm.vehicleCapacityKg"
+              @input="updateNumber('vehicleCapacityKg', $event)"
+            />
+            <div class="number-stepper">
+              <button type="button" class="number-stepper-btn" aria-label="增加容量" @click="stepNumber('vehicleCapacityKg', 1)">+</button>
+              <button type="button" class="number-stepper-btn" aria-label="減少容量" @click="stepNumber('vehicleCapacityKg', -1)">-</button>
+            </div>
+          </div>
         </div>
       </div>
-
-      <label class="field-label" for="route-osrm-url">OSRM 服務 URL</label>
-      <input
-        id="route-osrm-url"
-        class="field-control"
-        type="text"
-        :value="routeForm.osrmBaseUrl"
-        @input="updateText('osrmBaseUrl', $event)"
-      />
 
       <div class="field-row">
         <div class="field-col">
           <label class="field-label" for="route-time-limit">求解時間上限 (秒)</label>
-          <input
-            id="route-time-limit"
-            class="field-control"
-            type="number"
-            min="1"
-            step="1"
-            :value="routeForm.solverTimeLimitSec"
-            @input="updateNumber('solverTimeLimitSec', $event)"
-          />
+          <div class="number-control">
+            <input
+              id="route-time-limit"
+              class="field-control number-control-input"
+              type="number"
+              min="1"
+              step="1"
+              :value="routeForm.solverTimeLimitSec"
+              @input="updateNumber('solverTimeLimitSec', $event)"
+            />
+            <div class="number-stepper">
+              <button type="button" class="number-stepper-btn" aria-label="增加求解時間上限" @click="stepNumber('solverTimeLimitSec', 1)">+</button>
+              <button type="button" class="number-stepper-btn" aria-label="減少求解時間上限" @click="stepNumber('solverTimeLimitSec', -1)">-</button>
+            </div>
+          </div>
         </div>
         <div class="field-col">
           <label class="field-label" for="route-limit">節點上限</label>
-          <input
-            id="route-limit"
-            class="field-control"
-            type="number"
-            min="1"
-            step="1"
-            :value="routeForm.nodeLimit"
-            @input="updateNumber('nodeLimit', $event)"
-          />
+          <div class="number-control">
+            <input
+              id="route-limit"
+              class="field-control number-control-input"
+              type="number"
+              min="1"
+              step="1"
+              :value="routeForm.nodeLimit"
+              @input="updateNumber('nodeLimit', $event)"
+            />
+            <div class="number-stepper">
+              <button type="button" class="number-stepper-btn" aria-label="增加節點上限" @click="stepNumber('nodeLimit', 1)">+</button>
+              <button type="button" class="number-stepper-btn" aria-label="減少節點上限" @click="stepNumber('nodeLimit', -1)">-</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -202,27 +264,39 @@ const formatStopType = (value) => stopTypeLabels[value] || value
       <div class="field-row">
         <div class="field-col">
           <label class="field-label" for="route-cell">網格大小 (m)</label>
-          <input
-            id="route-cell"
-            class="field-control"
-            type="number"
-            min="10"
-            step="10"
-            :value="routeForm.aggregationCellMeters"
-            @input="updateNumber('aggregationCellMeters', $event)"
-          />
+          <div class="number-control">
+            <input
+              id="route-cell"
+              class="field-control number-control-input"
+              type="number"
+              min="10"
+              step="10"
+              :value="routeForm.aggregationCellMeters"
+              @input="updateNumber('aggregationCellMeters', $event)"
+            />
+            <div class="number-stepper">
+              <button type="button" class="number-stepper-btn" aria-label="增加網格大小" @click="stepNumber('aggregationCellMeters', 1)">+</button>
+              <button type="button" class="number-stepper-btn" aria-label="減少網格大小" @click="stepNumber('aggregationCellMeters', -1)">-</button>
+            </div>
+          </div>
         </div>
         <div class="field-col">
           <label class="field-label" for="route-threshold">聚合門檻</label>
-          <input
-            id="route-threshold"
-            class="field-control"
-            type="number"
-            min="10"
-            step="10"
-            :value="routeForm.aggregationThreshold"
-            @input="updateNumber('aggregationThreshold', $event)"
-          />
+          <div class="number-control">
+            <input
+              id="route-threshold"
+              class="field-control number-control-input"
+              type="number"
+              min="10"
+              step="10"
+              :value="routeForm.aggregationThreshold"
+              @input="updateNumber('aggregationThreshold', $event)"
+            />
+            <div class="number-stepper">
+              <button type="button" class="number-stepper-btn" aria-label="增加聚合門檻" @click="stepNumber('aggregationThreshold', 1)">+</button>
+              <button type="button" class="number-stepper-btn" aria-label="減少聚合門檻" @click="stepNumber('aggregationThreshold', -1)">-</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -232,37 +306,29 @@ const formatStopType = (value) => stopTypeLabels[value] || value
           :checked="routeForm.snapToRoadEnabled"
           @change="updateCheckbox('snapToRoadEnabled', $event)"
         />
-        <span>聚合前將點位貼齊道路</span>
+        <span>將點位貼齊道路（聚合前與聚合後）</span>
       </label>
 
       <label class="field-label" for="route-snap-distance">貼齊道路最大距離 (m)</label>
-      <input
-        id="route-snap-distance"
-        class="field-control"
-        type="number"
-        min="0"
-        step="10"
-        :value="routeForm.snapToRoadMaxDistanceMeters"
-        @input="updateNumber('snapToRoadMaxDistanceMeters', $event)"
-      />
+      <div class="number-control">
+        <input
+          id="route-snap-distance"
+          class="field-control number-control-input"
+          type="number"
+          min="0"
+          step="10"
+          :value="routeForm.snapToRoadMaxDistanceMeters"
+          @input="updateNumber('snapToRoadMaxDistanceMeters', $event)"
+        />
+        <div class="number-stepper">
+          <button type="button" class="number-stepper-btn" aria-label="增加貼齊道路最大距離" @click="stepNumber('snapToRoadMaxDistanceMeters', 1)">+</button>
+          <button type="button" class="number-stepper-btn" aria-label="減少貼齊道路最大距離" @click="stepNumber('snapToRoadMaxDistanceMeters', -1)">-</button>
+        </div>
+      </div>
 
-      <label class="field-label" for="route-node-filters">節點篩選條件 (JSON)</label>
-      <textarea
-        id="route-node-filters"
-        class="field-control text-area"
-        rows="3"
-        :value="routeForm.nodeFiltersText"
-        @input="updateText('nodeFiltersText', $event)"
-      />
-
-      <label class="field-label" for="route-disposal-filters">處理場篩選條件 (JSON)</label>
-      <textarea
-        id="route-disposal-filters"
-        class="field-control text-area"
-        rows="3"
-        :value="routeForm.disposalFiltersText"
-        @input="updateText('disposalFiltersText', $event)"
-      />
+      <p class="field-note" :class="{ warn: selectedRangeCount === 0 }">
+        {{ selectedRangeCount === 0 ? '請先在地圖上選取範圍才能求解' : `節點依地圖上已選取的範圍篩選（已選 ${selectedRangeCount} 個範圍）` }}
+      </p>
 
       <div class="pick-row">
         <button
@@ -283,13 +349,20 @@ const formatStopType = (value) => stopTypeLabels[value] || value
         </button>
       </div>
 
+      <p class="field-note">未選取起訖點時，自動使用最近的清潔隊作為起點與終點</p>
+
       <div class="coord-row">
-        <p>起點：{{ routeForm.startCoord ? routeForm.startCoord.join(', ') : '-' }}</p>
-        <p>終點：{{ routeForm.endCoord ? routeForm.endCoord.join(', ') : '-' }}</p>
+        <p>起點：{{ routeForm.startCoord ? routeForm.startCoord.join(', ') : '自動（最近清潔隊）' }}</p>
+        <p>終點：{{ routeForm.endCoord ? routeForm.endCoord.join(', ') : '自動（最近清潔隊）' }}</p>
       </div>
 
       <div class="action-row">
-        <button class="primary-btn" type="button" :disabled="routeRuntime.loading" @click="emit('solve-route')">
+        <button
+          class="primary-btn"
+          type="button"
+          :disabled="routeRuntime.loading || selectedRangeCount === 0"
+          @click="emit('solve-route')"
+        >
           {{ routeRuntime.loading ? '求解中...' : '求解路線' }}
         </button>
         <button class="secondary-btn" type="button" :disabled="routeRuntime.loading" @click="emit('clear-route')">
@@ -317,7 +390,13 @@ const formatStopType = (value) => stopTypeLabels[value] || value
         <p class="route-name">{{ route.vehicle_id }} / {{ route.distance_m }} m / {{ route.duration_s }} s</p>
         <ol class="stop-list">
           <li v-for="(stop, idx) in route.stops" :key="`${route.vehicle_id}-${idx}`" class="stop-row">
-            {{ idx + 1 }}. [{{ formatStopType(stop.type) }}] {{ stop.name }} / 載重 {{ stop.load_kg }} kg
+            <span>{{ idx + 1 }}. [{{ formatStopType(stop.type) }}] {{ stop.name }} / 載重 {{ stop.load_kg }} kg</span>
+            <ol v-if="nextLegSteps(route, idx).length" class="nav-list">
+              <li v-for="(step, stepIdx) in nextLegSteps(route, idx)" :key="stepIdx" class="nav-step">
+                <span class="nav-text">{{ step.text }}</span>
+                <span v-if="formatMeters(step.distance_m)" class="nav-dist">{{ formatMeters(step.distance_m) }}</span>
+              </li>
+            </ol>
           </li>
         </ol>
       </div>
@@ -338,9 +417,6 @@ const formatStopType = (value) => stopTypeLabels[value] || value
 .route-panel {
   display: grid;
   gap: 8px;
-  max-height: calc(100vh - 150px);
-  min-height: 0;
-  overflow-y: auto;
   padding-right: 4px;
 }
 
@@ -393,8 +469,76 @@ const formatStopType = (value) => stopTypeLabels[value] || value
   width: 100%;
 }
 
-.text-area {
-  resize: vertical;
+.number-control {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.number-control-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  padding-right: 30px;
+}
+
+.number-control-input::-webkit-inner-spin-button,
+.number-control-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.number-stepper {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  width: 22px;
+  overflow: hidden;
+  border-left: 1px solid #294567;
+  border-radius: 0 5px 5px 0;
+}
+
+.number-stepper-btn {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  border: 0;
+  background: #162b47;
+  color: #bfe0ff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.number-stepper-btn + .number-stepper-btn {
+  border-top: 1px solid #294567;
+}
+
+.number-stepper-btn:hover {
+  background: #1d3d66;
+  color: #ffffff;
+}
+
+.number-stepper-btn:active {
+  background: #28518a;
+}
+
+.number-stepper-btn:focus-visible {
+  outline: 1px solid #7cb9ff;
+  outline-offset: -2px;
+}
+
+.field-note {
+  margin: 0;
+  font-size: 10px;
+  color: #9fc5f8;
+}
+
+.field-note.warn {
+  color: #ffb3ad;
 }
 
 .field-check {
@@ -502,5 +646,28 @@ const formatStopType = (value) => stopTypeLabels[value] || value
 .stop-row {
   color: #d1e4ff;
   font-size: 10px;
+}
+
+.nav-list {
+  margin: 2px 0 4px 8px;
+  padding-left: 14px;
+  display: grid;
+  gap: 1px;
+  list-style: decimal;
+  border-left: 1px solid #274363;
+}
+
+.nav-step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: #a9c4e6;
+  font-size: 9px;
+}
+
+.nav-dist {
+  flex: none;
+  color: #7f9dc0;
 }
 </style>

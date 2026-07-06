@@ -9,6 +9,14 @@ export const createBasemapState = () => ({
     attribution: '&copy; OpenStreetMap contributors',
     active: true
   },
+  googleRoadmap: {
+    label: 'Google Roadmap',
+    detail: 'Google 道路底圖',
+    tiles: ['https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'],
+    tileSize: 256,
+    attribution: '&copy; Google',
+    active: false
+  },
   cartoVoyager: {
     label: 'Carto Voyager',
     detail: '彩色底圖',

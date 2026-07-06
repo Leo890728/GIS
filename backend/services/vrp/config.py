@@ -40,9 +40,13 @@ class _SolveConfig:
 
 
 def _parse_config(payload):
-    depot_payload = _as_dict(payload.get("depot"), "depot")
-    start = _parse_coord(depot_payload.get("start"), "depot.start")
-    end = _parse_coord(depot_payload.get("end"), "depot.end")
+    # depot.start / depot.end are optional: when omitted the service picks the
+    # disposal point (cleaning team) nearest the pickup area as the vehicle base.
+    depot_payload = payload.get("depot") or {}
+    if not isinstance(depot_payload, dict):
+        raise ValueError("depot must be an object")
+    start = _parse_coord(depot_payload.get("start"), "depot.start") if depot_payload.get("start") is not None else None
+    end = _parse_coord(depot_payload.get("end"), "depot.end") if depot_payload.get("end") is not None else None
 
     vehicles_payload = _as_dict(payload.get("vehicles"), "vehicles")
     vehicle_count = _as_int(vehicles_payload.get("count"), "vehicles.count", minimum=1)

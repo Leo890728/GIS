@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'stop'])
+const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'toggle-route-heatmap', 'stop'])
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -77,6 +77,25 @@ const bands = computed(() =>
     }))
     .filter((b) => b.to >= playFrom.value && b.from <= playTo.value)
 )
+
+// A tick for every individual capture point (frame), so the timeline shows where
+// data actually exists rather than just the enclosing session bands. Frames are
+// clipped to the (possibly zoomed) window and deduped by rendered position so the
+// DOM node count stays bounded even across long, densely-sampled ranges.
+const frameTicks = computed(() => {
+  const frames = props.simulatorState.frames ?? []
+  const ticks = []
+  let lastKey = null
+  for (const ms of frames) {
+    if (ms < playFrom.value || ms > playTo.value) continue
+    const left = pctOf(ms)
+    const key = Math.round(left * 5) // ~0.2% resolution (<=500 ticks)
+    if (key === lastKey) continue
+    lastKey = key
+    ticks.push({ ms, left })
+  }
+  return ticks
+})
 
 const timeFromClientX = (clientX) => {
   const el = trackEl.value
@@ -245,6 +264,12 @@ const onTrackKeydown = (event) => {
           :class="{ active: band.active }"
           :style="{ left: band.left + '%', width: band.width + '%' }"
         ></div>
+        <div
+          v-for="tick in frameTicks"
+          :key="tick.ms"
+          class="sim-track-tick"
+          :style="{ left: tick.left + '%' }"
+        ></div>
         <div class="sim-track-fill" :style="{ width: scrubberPct + '%' }"></div>
         <div class="sim-track-thumb" :style="{ left: scrubberPct + '%' }"></div>
         <div
@@ -260,6 +285,7 @@ const onTrackKeydown = (event) => {
 
     <div class="sim-bar-right">
       <button
+        v-if="simulatorState.mode !== 'route-plan'"
         class="sim-bar-btn live"
         :class="{ active: simulatorState.mode === 'live' }"
         type="button"
@@ -282,6 +308,18 @@ const onTrackKeydown = (event) => {
         </button>
       </div>
       <button
+        v-if="simulatorState.mode === 'route-plan'"
+        class="sim-bar-smooth"
+        :class="{ active: simulatorState.routeHeatmap }"
+        type="button"
+        :aria-pressed="simulatorState.routeHeatmap === true"
+        title="收運點以熱力圖顯示，收完垃圾的點熱力歸零"
+        @click="emit('toggle-route-heatmap')"
+      >
+        <span class="sim-bar-smooth-label">熱力</span>
+      </button>
+      <button
+        v-if="simulatorState.mode !== 'route-plan'"
         class="sim-bar-smooth"
         :class="{ active: simulatorState.smooth, busy: simulatorState.smoothing }"
         type="button"
@@ -448,6 +486,19 @@ const onTrackKeydown = (event) => {
 
 .sim-track-band.active {
   background: var(--accent);
+}
+
+/* One tick per capture point, so每個擷取點都看得到 */
+.sim-track-tick {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: #9fc3ff;
+  opacity: 0.75;
+  pointer-events: none;
 }
 
 .sim-track-fill {

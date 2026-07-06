@@ -6,6 +6,7 @@ except ImportError:  # pragma: no cover
     pywrapcp = None
     routing_enums_pb2 = None
 
+from backend.geo.turn_instructions import leg_instructions
 from backend.services.vrp.osrm_client import _build_route_geometry_from_osrm
 
 
@@ -141,6 +142,7 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
                     "memberCount": int(node.get("member_count", 1)),
                     "legFromPrevDistanceM": leg_distance,
                     "legFromPrevDurationS": leg_duration,
+                    "instructions": [],
                 }
             )
             if node_index in pickup_index_set:
@@ -169,6 +171,7 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
                 "memberCount": 1,
                 "legFromPrevDistanceM": end_leg_distance,
                 "legFromPrevDurationS": end_leg_duration,
+                "instructions": [],
             }
         )
 
@@ -200,6 +203,8 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
                         vehicle_stops[stop_index]["legFromPrevDistanceM"] = int(round(leg["distance"]))
                     if isinstance(leg.get("duration"), (int, float)):
                         vehicle_stops[stop_index]["legFromPrevDurationS"] = int(round(leg["duration"]))
+                    # 這一段（前一站 -> 本站）的逐步導航指示。
+                    vehicle_stops[stop_index]["instructions"] = leg_instructions(leg)
             except Exception as err:
                 geometry_source = "straight_fallback"
                 geometry_fallback_reason = str(err)

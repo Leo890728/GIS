@@ -1,7 +1,10 @@
 import { computed, onBeforeUnmount, reactive } from 'vue'
 import { fetchHistoryFrames, fetchHistoryRange } from './simulatorApi'
 import { deriveSessionSegments, toMs } from './playbackTimeline'
+import { buildRouteHeatGeoJson, buildRoutePlanTracks } from './routePlanTracks'
+import { getVehicleColor } from '../route/useRoutePlanner'
 import { useFrameRenderer } from './useFrameRenderer'
+import { useRoutePlanRenderer } from './useRoutePlanRenderer'
 import { useSmoothRenderer } from './useSmoothRenderer'
 import { useSelectedTrack } from './useSelectedTrack'
 import { useLiveMode } from './useLiveMode'
@@ -10,32 +13,44 @@ import { useSimulatorShortcuts } from './useSimulatorShortcuts'
 const SPEED_PRESETS = [1, 10, 30, 60]
 const DEFAULT_SPEED = 30
 
+// Shared playback blackboard. Fields are grouped by domain, and each group has
+// ONE owning writer (other modules read only) — keep it that way:
 const createState = () => ({
+  // Dataset identity + timeline (writer: selectDataset/activate, live poll).
   active: false,
-  dataId: '',
+  dataId: '', // 'route-plan' is the sentinel for solved-route playback
   from: null,
   to: null,
   count: 0,
   intervalSeconds: 60,
-  currentTime: null,
   frames: [],
   segments: [],
-  selectedSegmentIndex: -1,
+  // Transport / virtual clock (writer: the clock + window/segment setters; all
+  // setters pause() first — during play `currentTime` is a ~10Hz mirror of the
+  // precise clock, see tick()).
+  currentTime: null,
   playFrom: null,
   playTo: null,
-  mode: 'history',
-  autoFollow: false,
-  followCenter: null,
+  playing: false,
+  speed: DEFAULT_SPEED,
+  selectedSegmentIndex: -1,
+  mode: 'history', // 'history' | 'live' | 'route-plan'
+  // Selection + camera follow (writer: useSelectedTrack / selectRouteVehicle).
   selected: null,
   selectedPos: null,
+  autoFollow: false,
+  followCenter: null,
+  // Selected-entity trajectory overlay (writer: useSelectedTrack).
   trackGeoJson: null,
   trackTraveledGeoJson: null,
   trackEndpointsGeoJson: null,
   trackLoading: false,
   trackError: '',
+  // Render/progress channels — single-writer each: `loading` belongs to the
+  // frame renderer (and dataset activation), `smoothing`/`smoothProgress` to
+  // the smooth renderer.
   featureCount: 0,
-  playing: false,
-  speed: DEFAULT_SPEED,
+  routeHeatmap: false,
   smooth: false,
   smoothing: false,
   smoothProgress: { done: 0, total: 0 },
@@ -68,7 +83,14 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let lastTickReal = null
   let debounceTimer = null
 
+  const isRoutePlanMode = () => state.mode === 'route-plan'
+
   // --- Rendering strategies + selection overlay ------------------------------
+
+  // Route-plan playback: synthetic tracks built from a solved VRP result
+  // instead of recorded history; renders into its own map layers, so no live
+  // data layer is taken over.
+  const routePlan = useRoutePlanRenderer({ state })
 
   const selectedTrack = useSelectedTrack({
     apiBaseUrl,
@@ -93,9 +115,13 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   })
 
   // Single render dispatch: pick the active strategy, then advance the trajectory
-  // overlay. `realNow` (a RAF timestamp) throttles smooth playback; omit it for
-  // immediate renders. `force` re-applies the current frame even if unchanged.
+  // overlay. `realNow` (a RAF timestamp) throttles continuous playback; omit it
+  // for immediate renders. `force` re-applies the current frame even if unchanged.
   const renderAt = (ms, { force = false, realNow = null } = {}) => {
+    if (isRoutePlanMode()) {
+      routePlan.renderTick(ms, realNow)
+      return
+    }
     if (state.smooth && smooth.hasTracks()) smooth.renderTick(ms, realNow)
     else frame.applyActiveFrame(force)
     selectedTrack.updateTrackProgress()
@@ -111,6 +137,16 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     lastTickReal = null
   }
 
+  // The map renders straight from the precise clock (`clockMs`, a plain
+  // variable), while the reactive mirror `state.currentTime` — which re-renders
+  // every component showing the clock (control bar, panel, drawer) — is only
+  // written ~10x/s during play. Seeks/pauses write it directly, and the tick
+  // resyncs `clockMs` whenever an external write is detected, so paused reads
+  // are always exact.
+  let clockMs = null
+  let lastWrittenClock = null
+  let lastClockWriteReal = 0
+
   const tick = (nowReal) => {
     if (!state.playing) {
       stopRaf()
@@ -120,15 +156,31 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     const deltaReal = nowReal - lastTickReal
     lastTickReal = nowReal
 
-    const next = state.currentTime + deltaReal * state.speed
+    // A seek during play (control bar, shortcuts) wrote state.currentTime
+    // directly; adopt it as the new clock origin. Also mark it as "written" so
+    // the next tick doesn't re-adopt the same value and discard the progress
+    // made since (the mirror lags the precise clock by up to one write window).
+    if (state.currentTime !== lastWrittenClock) {
+      clockMs = state.currentTime
+      lastWrittenClock = state.currentTime
+    }
+
+    const next = clockMs + deltaReal * state.speed
     if (next >= state.playTo) {
+      clockMs = state.playTo
+      lastWrittenClock = state.playTo
       state.currentTime = state.playTo
       renderCurrent()
       pause()
       return
     }
-    state.currentTime = next
-    renderAt(state.currentTime, { realNow: nowReal })
+    clockMs = next
+    renderAt(next, { realNow: nowReal })
+    if (nowReal - lastClockWriteReal >= 100) {
+      lastClockWriteReal = nowReal
+      lastWrittenClock = next
+      state.currentTime = next
+    }
     rafId = requestAnimationFrame(tick)
   }
 
@@ -136,12 +188,20 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!state.active || state.currentTime == null) return
     live.exitLive()
     if (state.currentTime >= state.playTo) state.currentTime = state.playFrom
+    clockMs = state.currentTime
+    lastWrittenClock = state.currentTime
     state.playing = true
     lastTickReal = null
     rafId = requestAnimationFrame(tick)
   }
 
   const pause = () => {
+    // Flush the precise clock so anything reading currentTime while paused
+    // (step buttons, drawer, control bar) sees exactly where playback stopped.
+    if (state.playing && clockMs != null && state.currentTime !== clockMs) {
+      lastWrittenClock = clockMs
+      state.currentTime = clockMs
+    }
     state.playing = false
     stopRaf()
   }
@@ -177,6 +237,10 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     live.exitLive()
     const clamped = Math.min(state.playTo, Math.max(state.playFrom, Number(ms)))
     state.currentTime = clamped
+    if (isRoutePlanMode()) {
+      routePlan.render(clamped)
+      return
+    }
     selectedTrack.updateTrackProgress()
     if (state.smooth && smooth.hasTracks()) {
       smooth.renderSmooth(clamped)
@@ -188,14 +252,26 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   // --- Smooth playback toggle ------------------------------------------------
 
+  // After the playback window changes: if smoothing is on but the loaded
+  // tracks don't cover the new window, rebuild them for it (smoothing is
+  // window-scoped so big datasets only smooth the session being watched).
+  const reloadSmoothForWindow = () => {
+    if (!state.smooth) return
+    const lo = state.playFrom ?? state.from
+    const hi = state.playTo ?? state.to
+    if (lo == null || hi == null || smooth.coversWindow(lo, hi)) return
+    smooth.loadTracks().catch((error) => console.error(error))
+  }
+
   const setSmooth = async (enabled) => {
-    state.smooth = enabled === true
-    if (state.smooth) {
+    // Route-plan tracks already follow the road geometry; OSRM smoothing is a
+    // history-playback concept and would fetch a nonexistent dataset.
+    if (isRoutePlanMode()) return
+    if (enabled === true) {
+      state.smooth = true
       await smooth.loadTracks()
     } else {
-      smooth.abortLoad()
-      state.smoothing = false
-      smooth.reset()
+      smooth.disable()
       frame.applyActiveFrame(true)
     }
   }
@@ -234,6 +310,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
       state.playTo = state.to
       state.currentTime = Math.min(state.to, Math.max(state.from, state.currentTime ?? state.from))
     }
+    reloadSmoothForWindow()
     renderCurrent(true)
   }
 
@@ -257,6 +334,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     state.playTo = hi
     state.selectedSegmentIndex = -1
     state.currentTime = Math.min(hi, Math.max(lo, state.currentTime ?? hi))
+    reloadSmoothForWindow()
     renderCurrent(true)
   }
 
@@ -264,6 +342,8 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     if (!dataId) return
     pause()
     live.exitLive()
+    routePlan.clear()
+    if (isRoutePlanMode()) state.mode = 'history'
     selectedTrack.clearSelection()
     state.loading = true
     state.error = ''
@@ -315,16 +395,43 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
 
   const stop = () => {
     pause()
-    smooth.abortLoad()
+    smooth.disable()
     live.stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
     frame.invalidate()
     frame.reset()
-    smooth.reset()
     selectedTrack.reset()
+    routePlan.clear()
     dataLayers.exitSimulator()
     layerEntry = null
     Object.assign(state, createState())
+  }
+
+  // Play back a solved garbage-route result: all vehicles depart "now" and
+  // follow their route geometry, pinned to the solver's per-leg travel times.
+  const startRouteSimulation = (routeResult) => {
+    const built = buildRoutePlanTracks(routeResult, Date.now(), getVehicleColor)
+    if (!built.tracks.length) {
+      state.error = '目前沒有可模擬的路線，請先在「路線」頁求解。'
+      return
+    }
+    stop()
+    routePlan.setTracks(built.tracks, buildRouteHeatGeoJson(routeResult))
+    state.active = true
+    state.mode = 'route-plan'
+    state.dataId = 'route-plan'
+    state.from = built.fromMs
+    state.to = built.toMs
+    state.count = built.frames.length
+    state.intervalSeconds = 1
+    state.frames = built.frames
+    state.segments = []
+    state.selectedSegmentIndex = -1
+    state.playFrom = state.from
+    state.playTo = state.to
+    state.currentTime = state.from
+    routePlan.render(state.currentTime)
+    play()
   }
 
   // --- Global transport shortcuts --------------------------------------------
@@ -348,6 +455,16 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     simulatorState: state,
     simulatorCandidates: candidates,
     simulatorSpeeds: SPEED_PRESETS,
+    routeSimGeoJson: routePlan.pointsGeoJson,
+    routeSimTraveledGeoJson: routePlan.traveledGeoJson,
+    routeSimRemainingGeoJson: routePlan.remainingGeoJson,
+    routeSimHeatGeoJson: routePlan.heatGeoJson,
+    routeSimProgress: routePlan.progress,
+    selectedRouteVehicle: routePlan.selectedVehicle,
+    startRouteSimulation,
+    toggleRouteHeatmap: () => {
+      if (isRoutePlanMode()) state.routeHeatmap = !state.routeHeatmap
+    },
     selectSimulatorDataset: selectDataset,
     setSimulatorTime: setTime,
     toggleSimulatorPlay: togglePlay,
@@ -356,10 +473,18 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     toggleSimulatorSmooth: toggleSmooth,
     selectSimulatorSegment: selectSegment,
     setSimulatorWindow: setWindow,
-    toggleSimulatorLive: live.toggleLive,
+    toggleSimulatorLive: () => {
+      if (!isRoutePlanMode()) live.toggleLive()
+    },
     toggleSimulatorAutoFollow: selectedTrack.toggleAutoFollow,
-    selectSimulatorFeature: selectedTrack.selectFeature,
-    clearSimulatorSelection: selectedTrack.clearSelection,
+    selectSimulatorFeature: (payload) => {
+      if (isRoutePlanMode()) routePlan.selectVehicle(payload)
+      else selectedTrack.selectFeature(payload)
+    },
+    clearSimulatorSelection: () => {
+      if (isRoutePlanMode()) routePlan.selectVehicle(null)
+      else selectedTrack.clearSelection()
+    },
     toggleSimulatorTrack: selectedTrack.toggleSelectedTrack,
     stopSimulator: stop
   }

@@ -18,8 +18,15 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
   let selectedTrackSegments = null
 
   // The portion of each segment already traveled at the current instant.
-  const updateTrackProgress = () => {
+  // Rebuilding this polyline costs a full-geometry setData, and the render loop
+  // calls in at rAF rate while the reactive clock only advances ~10x/s during
+  // play — so skip the rebuild whenever the clock hasn't moved. `force` is for
+  // callers that changed the segments themselves.
+  let lastProgressMs = null
+  const updateTrackProgress = (force = false) => {
     if (!selectedTrackSegments) return
+    if (!force && state.currentTime === lastProgressMs) return
+    lastProgressMs = state.currentTime
     const features = selectedTrackSegments
       .map((seg) => traveledCoords(seg.path, state.currentTime))
       .filter((coords) => coords.length >= 2)
@@ -37,7 +44,7 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
     selectedTrackSegments = segments
     state.trackGeoJson = baseLine
     state.trackEndpointsGeoJson = segmentsToEndpointsGeoJson(segments)
-    updateTrackProgress()
+    updateTrackProgress(true)
   }
 
   const hideTrack = () => {

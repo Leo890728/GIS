@@ -11,12 +11,9 @@ const getLineWidthExpression = (key, scale = 1) => {
 }
 
 export const getBoundaryLayerIds = (layerState) =>
-  [
-    layerState.stat_zone?.layerId,
-    layerState.village?.layerId,
-    layerState.township?.layerId,
-    layerState.county?.layerId
-  ].filter(Boolean)
+  Object.values(layerState)
+    .map((entry) => entry?.layerId)
+    .filter(Boolean)
 
 export const useMapLayers = (mapRef, layerStateRef) => {
   const updateLayerVisibility = (key) => {

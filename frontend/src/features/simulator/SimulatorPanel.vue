@@ -14,10 +14,16 @@ const props = defineProps({
   simulatorSpeeds: {
     type: Array,
     default: () => [1, 10, 30, 60]
+  },
+  routePlanRoutes: {
+    type: Array,
+    default: () => []
   }
 })
 
-const emit = defineEmits(['select-dataset', 'set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'stop'])
+const emit = defineEmits(['select-dataset', 'set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'simulate-route-plan', 'stop'])
+
+const isRoutePlanMode = computed(() => props.simulatorState.mode === 'route-plan')
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -74,6 +80,20 @@ const onSliderInput = (event) => {
         </button>
         <p v-if="!simulatorCandidates.length" class="sim-empty">目前沒有可播放的即時資料集。</p>
       </div>
+    </div>
+
+    <div class="sim-section">
+      <p class="sim-label">路線規劃結果</p>
+      <button
+        v-if="routePlanRoutes.length"
+        class="sim-dataset-btn"
+        :class="{ active: isRoutePlanMode }"
+        type="button"
+        @click="emit('simulate-route-plan')"
+      >
+        模擬垃圾車路線（{{ routePlanRoutes.length }} 台車）
+      </button>
+      <p v-else class="sim-empty">尚無路線結果，請先在「路線」頁求解。</p>
     </div>
 
     <p v-if="simulatorState.error" class="sim-error">{{ simulatorState.error }}</p>
@@ -150,6 +170,7 @@ const onSliderInput = (event) => {
       </div>
 
       <button
+        v-if="!isRoutePlanMode"
         class="sim-smooth"
         :class="{ active: simulatorState.smooth }"
         type="button"

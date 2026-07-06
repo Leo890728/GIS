@@ -2,8 +2,8 @@ import { applyDataStyleHandler } from '../data/styleHandlers'
 import { streamHistoryTrack } from './simulatorApi'
 import { activePropertiesAt, interpolateSegmentsAt, isWithinTrackSegment, normalizeSmoothTracks } from './trackInterpolation'
 
-// ~25fps cap for the between-capture interpolated render during continuous play.
-const SMOOTH_RENDER_INTERVAL_MS = 40
+// ~60fps cap for the between-capture interpolated render during continuous play.
+const SMOOTH_RENDER_INTERVAL_MS = 16
 
 // Smooth (OSRM road-following) rendering strategy: streams per-entity tracks
 // once, then interpolates each entity's position at the clock instant. Owns the
@@ -13,11 +13,20 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
   let smoothTracks = []
   let smoothAbort = null
   let lastSmoothRenderReal = 0
+  // Time window the loaded tracks cover. Tracks are only built for the active
+  // playback window (selected session/day), not the whole recording, so large
+  // datasets smooth just the part being watched.
+  let loadedFrom = null
+  let loadedTo = null
 
   const hasTracks = () => smoothTracks.length > 0
   const getTracks = () => smoothTracks
+  const coversWindow = (lo, hi) =>
+    smoothTracks.length > 0 && loadedFrom != null && loadedTo != null && lo >= loadedFrom && hi <= loadedTo
   const reset = () => {
     smoothTracks = []
+    loadedFrom = null
+    loadedTo = null
   }
 
   const abortLoad = () => {
@@ -25,6 +34,18 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
       smoothAbort.abort()
       smoothAbort = null
     }
+  }
+
+  // Turn smoothing fully off: abort any in-flight stream, drop loaded tracks,
+  // and clear every smooth-related flag. This is the ONE place that knows the
+  // full checklist — callers (smooth toggle, live mode, simulator teardown)
+  // must not reach into the individual fields themselves.
+  const disable = () => {
+    abortLoad()
+    state.smooth = false
+    state.smoothing = false
+    state.smoothProgress = { done: 0, total: 0 }
+    reset()
   }
 
   const renderSmooth = (ms) => {
@@ -45,7 +66,7 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     }
     const styled = applyDataStyleHandler({ type: 'FeatureCollection', features }, getLayerEntry())
     dataLayers.setSimulatorGeoJson(styled)
-    state.featureCount = features.length
+    if (state.featureCount !== features.length) state.featureCount = features.length
     syncSelectedPosition(features)
   }
 
@@ -64,17 +85,24 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     abortLoad()
     smoothAbort = new AbortController()
     const controller = smoothAbort
-    state.loading = true
+    // Smooth only the active playback window (the selected recording session),
+    // not the dataset's full range.
+    const from = state.playFrom ?? state.from
+    const to = state.playTo ?? state.to
+    // Streaming progress is reported through `smoothing`/`smoothProgress` only;
+    // `state.loading` belongs to the frame renderer (single-writer channels).
     state.smoothing = true
     state.smoothProgress = { done: 0, total: 0 }
     try {
-      const response = await streamHistoryTrack(apiBaseUrl, state.dataId, state.from, state.to, {
+      const response = await streamHistoryTrack(apiBaseUrl, state.dataId, from, to, {
         signal: controller.signal,
         onProgress: ({ done, total }) => {
           state.smoothProgress = { done: Number(done) || 0, total: Number(total) || 0 }
         }
       })
       smoothTracks = normalizeSmoothTracks(response?.tracks)
+      loadedFrom = from
+      loadedTo = to
       renderSmooth(state.currentTime)
       state.error = ''
     } catch (error) {
@@ -84,17 +112,12 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
     } finally {
       if (smoothAbort === controller) smoothAbort = null
       // Once this is the abandoned-latest load (no newer load replaced it),
-      // clear the smooth-specific flag even on abort so the UI never sticks.
-      // `loading` is shared with frame loads, so only clear it on success to
-      // avoid clobbering a frame fetch that an abort path may have started.
+      // clear the flag even on abort so the UI never sticks.
       if (smoothAbort === null) {
         state.smoothing = false
-      }
-      if (!controller.signal.aborted) {
-        state.loading = false
       }
     }
   }
 
-  return { renderSmooth, renderTick, loadTracks, abortLoad, hasTracks, getTracks, reset }
+  return { renderSmooth, renderTick, loadTracks, abortLoad, disable, hasTracks, getTracks, coversWindow, reset }
 }

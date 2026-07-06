@@ -8,6 +8,8 @@ import { rangeLayerIds, useMapRanges } from './map/useMapRanges'
 import { useMapRouteLayers } from './map/useMapRouteLayers'
 import SimulatorControlBar from '../features/simulator/SimulatorControlBar.vue'
 import AnalyticsDrawer from '../features/simulator/AnalyticsDrawer.vue'
+import RouteVehicleDrawer from '../features/simulator/RouteVehicleDrawer.vue'
+import { ensureIcons } from '../features/data/icons/registry'
 
 const basemapSourceId = 'basemap-source'
 const basemapLayerId = 'basemap-layer'
@@ -67,6 +69,34 @@ const props = defineProps({
   simulatorSpeeds: {
     type: Array,
     default: () => [1, 10, 30, 60]
+  },
+  routeSimGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
+  routeSimTraveledGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
+  routeSimRemainingGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
+  routeSimHeatGeoJson: {
+    type: Object,
+    default: () => ({ type: 'FeatureCollection', features: [] })
+  },
+  routeSimSelectedVehicle: {
+    type: Object,
+    default: null
+  },
+  routeSimProgress: {
+    type: Object,
+    default: () => ({})
+  },
+  routeVehicleCapacityKg: {
+    type: Number,
+    default: 0
   }
 })
 
@@ -83,6 +113,7 @@ const emit = defineEmits([
   'simulator-select-segment',
   'simulator-set-window',
   'simulator-toggle-live',
+  'simulator-toggle-route-heatmap',
   'simulator-toggle-follow',
   'simulator-select-feature',
   'simulator-toggle-track',
@@ -111,6 +142,17 @@ const routeLayerVisibilityRef = toRef(props, 'routeLayerVisibility')
 
 const orderedLayerEntries = computed(() => Object.entries(props.layerState))
 const orderedDataLayerEntries = computed(() => Object.entries(props.dataLayerState))
+
+// Field labels for the analytics drawer come from the simulated dataset's
+// layer config (tooltip labels + propertyLabels extras), not hardcoded UI maps.
+const simulatorPropertyLabels = computed(() => {
+  const dataId = props.simulatorState?.dataId
+  if (!dataId) return {}
+  const entry = Object.values(props.dataLayerState || {}).find(
+    (layer) => (layer.query?.dataId || layer.dataId) === dataId
+  )
+  return entry?.propertyLabels || {}
+})
 const routeTypeLabels = {
   start: '起點',
   end: '終點',
@@ -226,9 +268,14 @@ const enforceLayerOrder = () => {
     ...getBoundaryLayerIds(props.layerState),
     ...getDataLayerIds(props.dataLayerState),
     'route-line-layer',
+    'route-sim-line-traveled-layer',
+    'route-sim-line-remaining-layer',
+    'route-sim-heat-layer',
     'route-stop-layer',
     'route-stop-order-layer',
-    'route-anchor-layer'
+    'route-anchor-layer',
+    'route-sim-vehicle-layer',
+    'route-sim-vehicle-label-layer'
   ]
 
   for (const id of orderedIds) {
@@ -374,6 +421,24 @@ const handleDataHover = (event) => {
 const handleSimulatorClick = (event) => {
   const m = map.value
   if (!m || !props.simulatorState?.active) return
+  // Route-plan playback: clicking a simulated truck opens the vehicle drawer
+  // (stop timeline + current load); clicking empty space closes it.
+  if (props.simulatorState.mode === 'route-plan') {
+    if (!m.getLayer('route-sim-vehicle-layer')) return
+    const vehicleFeatures = m.queryRenderedFeatures(event.point, { layers: ['route-sim-vehicle-layer'] })
+    const vehicleFeature = vehicleFeatures[0]
+    const trackKey = vehicleFeature?.properties?.__trackKey
+    if (trackKey == null || trackKey === '') {
+      emit('simulator-select-feature', null)
+      return
+    }
+    emit('simulator-select-feature', {
+      key: String(trackKey),
+      properties: vehicleFeature.properties || {},
+      coordinates: vehicleFeature?.geometry?.coordinates || [event.lngLat.lng, event.lngLat.lat]
+    })
+    return
+  }
   const pointLayerIds = getDataPointLayerIds(props.dataLayerState).filter((layerId) => m.getLayer(layerId))
   if (!pointLayerIds.length) return
   const features = m.queryRenderedFeatures(event.point, { layers: pointLayerIds })
@@ -520,13 +585,16 @@ watch(
   { deep: true }
 )
 
+// Shallow on purpose: writers replace the dict identity per change (see
+// setLayerGeoJson), and the simulator feeds a frame every ~16ms during
+// playback — a deep watch would re-traverse every feature of every loaded
+// layer per frame.
 watch(
   () => props.dataLayerGeoJson,
   () => {
     updateDataLayerGeoJson()
     refreshHoverFromData()
-  },
-  { deep: true }
+  }
 )
 
 watch(
@@ -570,11 +638,26 @@ watch(
 )
 
 // Auto-follow: recenter on the simulator's current centroid (frame cadence).
+// Updates arrive every rendered frame, so a restarted 600ms easeTo would sit
+// forever in its slow-start phase and fight the render loop. Instead: a big
+// jump (follow just enabled, or a seek teleported the vehicle) gets one
+// uninterrupted ease; the per-frame small deltas use jumpTo, which is a cheap
+// transform update — the interpolated vehicle motion supplies the smoothness.
+let followEaseUntilReal = 0
 watch(
   () => props.simulatorState?.followCenter,
   (center) => {
     if (!map.value || !props.simulatorState?.autoFollow || !Array.isArray(center)) return
-    map.value.easeTo({ center, duration: 600 })
+    const nowReal = performance.now()
+    if (nowReal < followEaseUntilReal) return // let the recenter ease finish
+    const target = map.value.project({ lng: center[0], lat: center[1] })
+    const current = map.value.project(map.value.getCenter())
+    if (Math.hypot(target.x - current.x, target.y - current.y) > 100) {
+      followEaseUntilReal = nowReal + 400
+      map.value.easeTo({ center, duration: 400 })
+    } else {
+      map.value.jumpTo({ center })
+    }
   }
 )
 
@@ -693,6 +776,275 @@ watch(
   }
 )
 
+// --- Route-plan playback: traveled/remaining route split + stop fading -------
+//
+// While simulating, the static route-line-layer is hidden and replaced by two
+// shared layers fed per frame: the traveled portion (translucent vehicle color)
+// and the remaining portion (solid). Stops already served fade to translucent
+// via a rebuilt paint expression.
+const ROUTE_STOP_OPACITY_DEFAULT = 0.92
+let routeSimPaintApplied = false
+
+// Base heat weight: the garbage volume at the stop, scaled so a typical stop
+// (~500 kg) contributes weight 1 and huge aggregated cells saturate at 3.
+const ROUTE_SIM_HEAT_BASE_WEIGHT = ['min', 3, ['/', ['to-number', ['get', 'demandKg']], 500]]
+
+// Served stops stop contributing heat — their garbage has been collected.
+const buildHeatWeightExpression = (progressMap) => {
+  const branches = []
+  for (const [vehicleId, info] of Object.entries(progressMap)) {
+    branches.push(vehicleId, [
+      'case',
+      ['<', ['get', 'stopIndex'], Number(info.visitedStops) || 0],
+      0,
+      ROUTE_SIM_HEAT_BASE_WEIGHT
+    ])
+  }
+  if (!branches.length) return ROUTE_SIM_HEAT_BASE_WEIGHT
+  return ['match', ['get', 'vehicleId'], ...branches, ROUTE_SIM_HEAT_BASE_WEIGHT]
+}
+
+// Served stops (stopIndex below the vehicle's visited count) fade out.
+const buildVisitedStopExpression = (progressMap, visitedValue, defaultValue) => {
+  const branches = []
+  for (const [vehicleId, info] of Object.entries(progressMap)) {
+    branches.push(vehicleId, [
+      'case',
+      ['<', ['get', 'stopIndex'], Number(info.visitedStops) || 0],
+      visitedValue,
+      defaultValue
+    ])
+  }
+  if (!branches.length) return defaultValue
+  return ['match', ['get', 'vehicleId'], ...branches, defaultValue]
+}
+
+const setStopLayersVisibility = (m, visible) => {
+  const visibility = visible ? 'visible' : 'none'
+  if (m.getLayer('route-stop-layer')) m.setLayoutProperty('route-stop-layer', 'visibility', visibility)
+  if (m.getLayer('route-stop-order-layer')) m.setLayoutProperty('route-stop-order-layer', 'visibility', visibility)
+}
+
+const resetRouteSimPaint = () => {
+  const m = map.value
+  if (!m || !routeSimPaintApplied) return
+  routeSimPaintApplied = false
+  if (m.getLayer('route-line-layer')) {
+    m.setLayoutProperty(
+      'route-line-layer',
+      'visibility',
+      props.routeLayerVisibility?.line === false ? 'none' : 'visible'
+    )
+  }
+  setStopLayersVisibility(m, props.routeLayerVisibility?.stops !== false)
+  if (m.getLayer('route-sim-heat-layer')) {
+    m.setLayoutProperty('route-sim-heat-layer', 'visibility', 'none')
+  }
+  if (m.getLayer('route-stop-layer')) {
+    m.setPaintProperty('route-stop-layer', 'circle-opacity', ROUTE_STOP_OPACITY_DEFAULT)
+    m.setPaintProperty('route-stop-layer', 'circle-stroke-opacity', 1)
+  }
+  if (m.getLayer('route-stop-order-layer')) {
+    m.setPaintProperty('route-stop-order-layer', 'text-opacity', 1)
+  }
+}
+
+const applyRouteSimProgress = () => {
+  const m = map.value
+  if (!m || !mapLoaded.value) return
+  const simulating = props.simulatorState?.active && props.simulatorState?.mode === 'route-plan'
+  const progressMap = props.routeSimProgress || {}
+  if (!simulating || !Object.keys(progressMap).length) {
+    resetRouteSimPaint()
+    return
+  }
+  routeSimPaintApplied = true
+
+  // The traveled/remaining split layers replace the static route lines.
+  if (m.getLayer('route-line-layer')) {
+    m.setLayoutProperty('route-line-layer', 'visibility', 'none')
+  }
+
+  // Heat view swaps the stop dots for a heatmap whose weight drops to zero at
+  // stops the truck has already served.
+  const heatOn = props.simulatorState?.routeHeatmap === true
+  if (m.getLayer('route-sim-heat-layer')) {
+    m.setLayoutProperty('route-sim-heat-layer', 'visibility', heatOn ? 'visible' : 'none')
+    if (heatOn) {
+      m.setPaintProperty('route-sim-heat-layer', 'heatmap-weight', buildHeatWeightExpression(progressMap))
+    }
+  }
+  setStopLayersVisibility(m, !heatOn && props.routeLayerVisibility?.stops !== false)
+
+  if (m.getLayer('route-stop-layer')) {
+    m.setPaintProperty(
+      'route-stop-layer',
+      'circle-opacity',
+      buildVisitedStopExpression(progressMap, 0.25, ROUTE_STOP_OPACITY_DEFAULT)
+    )
+    m.setPaintProperty(
+      'route-stop-layer',
+      'circle-stroke-opacity',
+      buildVisitedStopExpression(progressMap, 0.25, 1)
+    )
+  }
+  if (m.getLayer('route-stop-order-layer')) {
+    m.setPaintProperty(
+      'route-stop-order-layer',
+      'text-opacity',
+      buildVisitedStopExpression(progressMap, 0.3, 1)
+    )
+  }
+}
+
+watch(
+  () => props.routeSimProgress,
+  () => applyRouteSimProgress()
+)
+
+watch(
+  () => [props.simulatorState?.active, props.simulatorState?.mode, props.simulatorState?.routeHeatmap],
+  () => applyRouteSimProgress()
+)
+
+// Simulated garbage-truck positions during route-plan playback: a truck sprite
+// per vehicle (8-direction tcg-v2 set, picked by heading in `truckIconId`),
+// with the vehicle id above in the vehicle's color. The traveled/remaining
+// route split renders beneath the stop dots (see enforceLayerOrder) so stops
+// stay clickable and visible on top of the lines.
+const ROUTE_SIM_TRUCK_ICONS = Array.from({ length: 8 }, (_, index) => ({
+  id: `tcg-v2-garbage-o0${index + 1}`,
+  src: `/icons/tcg-v2/noGarbage_truck_o0${index + 1}.png`
+}))
+
+const ensureRouteSimLayers = () => {
+  const m = map.value
+  if (!m || !mapLoaded.value) return false
+  let createdLayers = false
+  // Idempotent: skips ids already registered by the live data layers.
+  ensureIcons(m, ROUTE_SIM_TRUCK_ICONS).catch((error) => console.warn(error))
+  if (!m.getSource('route-sim-source')) {
+    m.addSource('route-sim-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getSource('route-sim-line-traveled-source')) {
+    m.addSource('route-sim-line-traveled-source', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    })
+  }
+  if (!m.getSource('route-sim-line-remaining-source')) {
+    m.addSource('route-sim-line-remaining-source', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    })
+  }
+  if (!m.getSource('route-sim-heat-source')) {
+    m.addSource('route-sim-heat-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!m.getLayer('route-sim-heat-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-heat-layer',
+      type: 'heatmap',
+      source: 'route-sim-heat-source',
+      layout: { visibility: 'none' },
+      paint: {
+        'heatmap-weight': ROUTE_SIM_HEAT_BASE_WEIGHT,
+        'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 8, 14, 12, 26, 16, 44],
+        'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 14, 1.4],
+        'heatmap-opacity': 0.75
+      }
+    })
+  }
+  if (!m.getLayer('route-sim-line-traveled-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-line-traveled-layer',
+      type: 'line',
+      source: 'route-sim-line-traveled-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['get', 'vehicleColor'],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 3.2, 16, 5.0],
+        'line-opacity': 0.28
+      }
+    })
+  }
+  if (!m.getLayer('route-sim-line-remaining-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-line-remaining-layer',
+      type: 'line',
+      source: 'route-sim-line-remaining-source',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['get', 'vehicleColor'],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 3.2, 16, 5.0],
+        'line-opacity': 0.9
+      }
+    })
+  }
+  if (!m.getLayer('route-sim-vehicle-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-vehicle-layer',
+      type: 'symbol',
+      source: 'route-sim-source',
+      layout: {
+        'icon-image': ['get', 'truckIconId'],
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 12, 0.9, 16, 1.2],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true
+      }
+    })
+  }
+  if (!m.getLayer('route-sim-vehicle-label-layer')) {
+    createdLayers = true
+    m.addLayer({
+      id: 'route-sim-vehicle-label-layer',
+      type: 'symbol',
+      source: 'route-sim-source',
+      layout: {
+        'text-field': ['get', 'vehicleId'],
+        'text-font': ['Open Sans Regular'],
+        'text-size': 10,
+        'text-offset': [0, -2.2],
+        'text-anchor': 'bottom',
+        'text-allow-overlap': true,
+        'text-ignore-placement': true
+      },
+      paint: {
+        // The truck sprite replaced the per-vehicle colored dot, so the label
+        // carries the vehicle color for telling trucks apart.
+        'text-color': ['get', 'vehicleColor'],
+        'text-halo-color': '#0f1729',
+        'text-halo-width': 1.4
+      }
+    })
+  }
+  // Newly added layers land on top of everything; re-assert the intended
+  // stacking (sim route lines below stop dots, vehicle dots on top).
+  if (createdLayers) enforceLayerOrder()
+  return true
+}
+
+const setRouteSimSourceData = (sourceId, fc) => {
+  if (!ensureRouteSimLayers()) return
+  const src = map.value.getSource(sourceId)
+  if (src) src.setData(fc || { type: 'FeatureCollection', features: [] })
+}
+
+// Route *simulation* overlays (moving trucks + progress lines + heat), fed per
+// frame by useSimulator — distinct from the route *plan* layers above
+// (routeLineGeoJson etc.), which show the solved static route. One watch per
+// source on purpose: during playback only the vehicle points change every
+// frame, so the heavier line/heat sources must not re-upload with them.
+const bindRouteSimSource = (getter, sourceId) => watch(getter, (fc) => setRouteSimSourceData(sourceId, fc))
+bindRouteSimSource(() => props.routeSimGeoJson, 'route-sim-source')
+bindRouteSimSource(() => props.routeSimTraveledGeoJson, 'route-sim-line-traveled-source')
+bindRouteSimSource(() => props.routeSimRemainingGeoJson, 'route-sim-line-remaining-source')
+bindRouteSimSource(() => props.routeSimHeatGeoJson, 'route-sim-heat-source')
+
 onMounted(() => {
   createMap()
 })
@@ -786,15 +1138,27 @@ onBeforeUnmount(() => {
       @select-segment="emit('simulator-select-segment', $event)"
       @set-window="emit('simulator-set-window', $event)"
       @toggle-live="emit('simulator-toggle-live')"
+      @toggle-route-heatmap="emit('simulator-toggle-route-heatmap')"
       @stop="emit('simulator-stop')"
     />
 
     <AnalyticsDrawer
-      v-if="props.simulatorState?.active"
+      v-if="props.simulatorState?.active && props.simulatorState?.mode !== 'route-plan'"
       :simulator-state="props.simulatorState"
+      :property-labels="simulatorPropertyLabels"
       @toggle-track="emit('simulator-toggle-track')"
       @toggle-follow="emit('simulator-toggle-follow')"
       @clear-selection="emit('simulator-select-feature', null)"
+    />
+
+    <RouteVehicleDrawer
+      v-if="props.simulatorState?.active && props.simulatorState?.mode === 'route-plan' && props.routeSimSelectedVehicle"
+      :simulator-state="props.simulatorState"
+      :vehicle="props.routeSimSelectedVehicle"
+      :capacity-kg="props.routeVehicleCapacityKg"
+      @close="emit('simulator-select-feature', null)"
+      @seek="emit('simulator-set-time', $event)"
+      @toggle-follow="emit('simulator-toggle-follow')"
     />
   </section>
 </template>
