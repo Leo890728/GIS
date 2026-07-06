@@ -391,6 +391,8 @@ const drawingTools = [
 
 <style>
 .sidebar {
+  height: 100vh;
+  overflow-y:auto;
   background: #111a2b;
   border-right: 1px solid #2f4668;
   padding: 20px 16px;
