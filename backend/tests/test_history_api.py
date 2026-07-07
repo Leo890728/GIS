@@ -179,6 +179,19 @@ class HistoryApiTestCase(unittest.TestCase):
         self.assertEqual("ds", result["dataId"])
         self.assertNotIn("tracks", result)
 
+    def test_track_key_param_returns_only_that_entity(self):
+        self._build_three_captures()
+        self.service.osrm_leg_router = lambda b, p, coords: [
+            [list(coords[i]), list(coords[i + 1])] for i in range(len(coords) - 1)
+        ]
+
+        body = self.client.get("/data/history/ds/track?key=A").get_json()
+        self.assertEqual(["A"], [t["key"] for t in body["tracks"]])
+
+        # Without the filter both entities are still built.
+        body_all = self.client.get("/data/history/ds/track").get_json()
+        self.assertEqual({"A", "B"}, {t["key"] for t in body_all["tracks"]})
+
     def test_track_stream_unknown_dataset_emits_error(self):
         resp = self.client.get("/data/history/nope/track/stream")
         # The stream itself opens 200; the failure is delivered as an error event.

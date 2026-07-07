@@ -115,6 +115,25 @@ class HistoryTrackServiceTestCase(unittest.TestCase):
         )
         self.assertEqual(2, len(self._only_path(tracks[0])))
 
+    def test_keys_filter_builds_and_routes_only_requested_entity(self):
+        self._append(_t(0), [_feat("A", 120.0, 24.0, _t(0)), _feat("B", 121.0, 25.0, _t(0))])
+        self._append(_t(1), [_feat("A", 120.01, 24.0, _t(1)), _feat("B", 121.01, 25.0, _t(1))])
+
+        tracks = build_entity_tracks(
+            self.db,
+            "ds",
+            KEY_FIELDS,
+            None,
+            None,
+            leg_router=self._identity_router(),
+            leg_cache={},
+            keys=["A"],
+        )
+        self.assertEqual(["A"], [t["key"] for t in tracks])
+        # Only A's run reached the router — B was never routed.
+        self.assertEqual(1, len(self.calls))
+        self.assertEqual((120.0, 24.0), self.calls[0][0])
+
     def test_samples_carry_per_node_properties(self):
         self._append(_t(0), [_feat("A", 120.0, 24.0, _t(0), SpeedValue=10)])
         self._append(_t(1), [_feat("A", 120.01, 24.0, _t(1), SpeedValue=55)])

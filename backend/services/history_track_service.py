@@ -310,8 +310,12 @@ def build_entity_tracks(
     max_url_length=DEFAULT_MAX_URL_LENGTH,
     max_concurrency=DEFAULT_OSRM_CONCURRENCY,
     progress_cb=None,
+    keys=None,
 ):
     """Build road-following, time-stamped tracks per entity (plan/route/assemble).
+
+    ``keys`` restricts the build to those entity keys, so a single-entity
+    request costs one entity's OSRM routing instead of the whole dataset's.
 
     Keyword signature is preserved for callers; the work is delegated to the
     three phase functions through a :class:`TrackBuildOptions` bundle.
@@ -341,6 +345,9 @@ def build_entity_tracks(
     leg_cache = leg_cache if leg_cache is not None else {}
 
     raw = history_db.entity_tracks(data_id, key_fields, frm, to)
+    if keys is not None:
+        wanted = set(keys)
+        raw = {key: info for key, info in raw.items() if key in wanted}
     plans, jobs = _plan_track_jobs(raw, options, leg_cache)
     results = _route_track_jobs(jobs, leg_router, leg_cache, options)
     return _assemble_track_results(plans, results, options)

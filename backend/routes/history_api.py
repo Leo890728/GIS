@@ -75,8 +75,11 @@ def history_track(data_id):
     service = _service()
     frm = _parse_param("from")
     to = _parse_param("to")
+    # Optional repeatable `key` narrows the build to those entities, so a
+    # single-track request doesn't OSRM-route the whole dataset.
+    keys = [k for k in request.args.getlist("key") if k] or None
     try:
-        tracks = service.history_tracks(data_id, frm, to)
+        tracks = service.history_tracks(data_id, frm, to, keys=keys)
     except KeyError as err:
         abort(404, description=str(err))
     return {

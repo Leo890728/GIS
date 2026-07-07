@@ -189,7 +189,7 @@ class DatasetService:
         key_fields = (source.get("history") or {}).get("key") or []
         return self.history_db.state_at(data_id, t, key_fields)
 
-    def history_tracks(self, data_id, frm=None, to=None, progress_cb=None):
+    def history_tracks(self, data_id, frm=None, to=None, progress_cb=None, keys=None):
         source = self._require_history(data_id)
         history = source.get("history") or {}
         key_fields = history.get("key") or []
@@ -210,6 +210,7 @@ class DatasetService:
             max_gap_seconds=max_gap_seconds,
             max_concurrency=int(osrm.get("concurrency") or DEFAULT_OSRM_CONCURRENCY),
             progress_cb=progress_cb,
+            keys=keys,
         )
 
     def _get_source(self, data_id):

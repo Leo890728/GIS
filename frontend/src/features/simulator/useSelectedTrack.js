@@ -111,7 +111,7 @@ export const useSelectedTrack = ({ apiBaseUrl, state, getSmoothTracks }) => {
     state.trackLoading = true
     state.trackError = ''
     try {
-      const response = await fetchHistoryTrack(apiBaseUrl, state.dataId, lo, hi)
+      const response = await fetchHistoryTrack(apiBaseUrl, state.dataId, lo, hi, key)
       if (state.selected?.key !== key) return // selection changed mid-flight
       const track = (response?.tracks || []).find((entry) => entry.key === key)
       if (track) showTrack(track)

@@ -20,10 +20,13 @@ export const fetchHistoryAt = (apiBaseUrl, dataId, ms) =>
     '載入歷史影格'
   )
 
-export const fetchHistoryTrack = (apiBaseUrl, dataId, fromMs, toMs) => {
+export const fetchHistoryTrack = (apiBaseUrl, dataId, fromMs, toMs, key) => {
   const params = new URLSearchParams()
   if (fromMs != null) params.set('from', toIso(fromMs))
   if (toMs != null) params.set('to', toIso(toMs))
+  // Restrict the backend build to this entity — without it the endpoint
+  // OSRM-routes every entity in the dataset just to return one track.
+  if (key != null) params.set('key', key)
   const query = params.toString()
   return getJson(
     `${apiBaseUrl}/data/history/${encodeURIComponent(dataId)}/track${query ? `?${query}` : ''}`,
