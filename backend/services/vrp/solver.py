@@ -1,5 +1,8 @@
 """OR-Tools model setup, solving, and per-route geometry/solution extraction."""
 
+import logging
+import time
+
 try:
     from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 except ImportError:  # pragma: no cover
@@ -9,6 +12,8 @@ except ImportError:  # pragma: no cover
 from backend.geo.turn_instructions import leg_instructions
 from backend.services.vrp.osrm_client import _build_route_geometry_from_osrm
 
+
+logger = logging.getLogger(__name__)
 
 UNREACHABLE_COST = 10**8
 DEFAULT_DROP_PENALTY = 10**7
@@ -42,24 +47,18 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
     cost_matrix = duration_matrix if config.metric == "duration" else distance_matrix
     disposal_index_set = set(disposal_indices)
 
-    def transit_callback(from_index, to_index):
-        from_node = manager.IndexToNode(from_index)
-        to_node = manager.IndexToNode(to_index)
-        cost = cost_matrix[from_node][to_node]
-        if from_node in disposal_index_set:
-            cost += config.disposal_visit_cost
-        return cost
+    # Registering the full matrix keeps cost lookups in C++; a Python transit
+    # callback would cross the language boundary on every arc evaluation and
+    # slash search throughput within the same time limit.
+    arc_cost_matrix = [list(row) for row in cost_matrix]
+    for from_node in disposal_index_set:
+        arc_cost_matrix[from_node] = [value + config.disposal_visit_cost for value in arc_cost_matrix[from_node]]
 
-    transit_index = routing.RegisterTransitCallback(transit_callback)
+    transit_index = routing.RegisterTransitMatrix(arc_cost_matrix)
     routing.SetArcCostEvaluatorOfAllVehicles(transit_index)
 
     demands = [node.get("demand_int", 0) for node in nodes]
-
-    def demand_callback(from_index):
-        from_node = manager.IndexToNode(from_index)
-        return demands[from_node]
-
-    demand_index = routing.RegisterUnaryTransitCallback(demand_callback)
+    demand_index = routing.RegisterUnaryTransitVector(demands)
     routing.AddDimensionWithVehicleCapacity(
         demand_index,
         config.capacity_kg,
@@ -95,7 +94,9 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
     search_params.time_limit.seconds = config.time_limit_sec
     search_params.log_search = False
 
+    _solve_started = time.perf_counter()
     solution = routing.SolveWithParameters(search_params)
+    ortools_seconds = time.perf_counter() - _solve_started
     if solution is None:
         raise LookupError("No feasible solution found")
 
@@ -110,6 +111,7 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
     total_distance = 0
     total_duration = 0
     geometry_fallback_route_count = 0
+    geometry_seconds = 0.0
     for vehicle_id in range(config.vehicle_count):
         index = routing.Start(vehicle_id)
         vehicle_stops = []
@@ -182,6 +184,7 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
             }
             geometry_source = "straight_fallback"
             geometry_fallback_reason = ""
+            _geometry_started = time.perf_counter()
             try:
                 route_coordinates = [(stop["lng"], stop["lat"]) for stop in vehicle_stops]
                 osrm_geometry, osrm_legs = _build_route_geometry_from_osrm(
@@ -209,6 +212,7 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
                 geometry_source = "straight_fallback"
                 geometry_fallback_reason = str(err)
                 geometry_fallback_route_count += 1
+            geometry_seconds += time.perf_counter() - _geometry_started
 
             routes.append(
                 {
@@ -227,6 +231,15 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
             )
             total_distance += route_distance
             total_duration += route_duration
+
+    logger.info(
+        "VRP solver timings: nodes=%d vehicles=%d time_limit=%ds ortools=%.2fs geometry=%.2fs",
+        len(nodes),
+        config.vehicle_count,
+        config.time_limit_sec,
+        ortools_seconds,
+        geometry_seconds,
+    )
 
     return {
         "routes": routes,

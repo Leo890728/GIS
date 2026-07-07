@@ -15,8 +15,10 @@ services:
   osrm:
     image: ghcr.io/project-osrm/osrm-backend
     # Matches the existing files in tools/osrm/. Override with OSRM_DATA if you
-    # rebuild to a different prefix (e.g. taiwan.osrm).
-    command: osrm-routed --algorithm mld --max-table-size 1500 /data/${OSRM_DATA:-taiwan-260617.osrm}
+    # rebuild to a different prefix, and keep OSRM_ALGO in sync with how that
+    # prefix was built (build.sh: mld → partition/customize, ch → contract).
+    # CH serves /table an order of magnitude faster — prefer it for VRP.
+    command: osrm-routed --algorithm ${OSRM_ALGO:-mld} --max-table-size 1500 /data/${OSRM_DATA:-taiwan-260617.osrm}
     ports:
       - "5001:5000"            # host:container (osrm-routed listens on 5000)
     volumes:
@@ -51,6 +53,13 @@ services:
       # Smooth tracks and VRP both use the single osrm service.
       HISTORY_OSRM_URL: "http://osrm:5000"
       VRP_OSRM_URL: "http://osrm:5000"
+      # VRP OSRM client tuning; defaults live in backend/services/vrp — set the
+      # matching keys in .env to override (documented in .env.example).
+      VRP_OSRM_TIMEOUT_SECONDS: ${VRP_OSRM_TIMEOUT_SECONDS:-60}
+      VRP_TABLE_SPLIT_THRESHOLD: ${VRP_TABLE_SPLIT_THRESHOLD:-400}
+      VRP_TABLE_BLOCK_MAX_COORDS: ${VRP_TABLE_BLOCK_MAX_COORDS:-600}
+      VRP_TABLE_MAX_PARALLEL_REQUESTS: ${VRP_TABLE_MAX_PARALLEL_REQUESTS:-8}
+      VRP_SNAP_MAX_PARALLEL_REQUESTS: ${VRP_SNAP_MAX_PARALLEL_REQUESTS:-16}
       SPATIALITE_EXTENSION_PATH: "/usr/lib/x86_64-linux-gnu/mod_spatialite.so"
     volumes:
       - ./backend/data:/app/backend/data

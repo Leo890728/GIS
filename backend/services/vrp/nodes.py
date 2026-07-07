@@ -1,12 +1,19 @@
 """Node building: pickup/disposal collection, aggregation, snap, VRP nodes."""
 
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+import httpx
 
 from backend.services.point_query import query_points
 from backend.services.regions_service import split_codes
 from backend.services.vrp.geo import _approx_distance_m, _get_point, _grid_index
-from backend.services.vrp.osrm_client import _fetch_osrm_nearest
+from backend.services.vrp.osrm_client import OSRM_TIMEOUT_SECONDS, _fetch_osrm_nearest
 from backend.services.vrp.payload import _as_dict, _as_int, _as_string
+
+
+SNAP_MAX_PARALLEL_REQUESTS = int(os.getenv("VRP_SNAP_MAX_PARALLEL_REQUESTS", "16"))
 
 
 def _build_codes(range_payload):
@@ -216,18 +223,34 @@ def _snap_pickup_nodes_to_road(nodes, enabled, max_distance_m, osrm_base_url, pr
         return nodes, 0
     snapped_count = 0
     snapped_nodes = []
-    nearest_cache = {}
+
+    unique_coords = {}
     for node in nodes:
         cache_key = (round(float(node["lng"]), 7), round(float(node["lat"]), 7))
-        if cache_key not in nearest_cache:
-            try:
-                nearest_cache[cache_key] = _fetch_osrm_nearest(
-                    osrm_base_url=osrm_base_url,
-                    profile=profile,
-                    coordinate=(float(node["lng"]), float(node["lat"])),
+        unique_coords.setdefault(cache_key, (float(node["lng"]), float(node["lat"])))
+
+    def _fetch(coordinate, client):
+        try:
+            return _fetch_osrm_nearest(
+                osrm_base_url=osrm_base_url,
+                profile=profile,
+                coordinate=coordinate,
+                client=client,
+            )
+        except Exception:
+            return None
+
+    with httpx.Client(timeout=OSRM_TIMEOUT_SECONDS) as client:
+        with ThreadPoolExecutor(max_workers=min(SNAP_MAX_PARALLEL_REQUESTS, len(unique_coords))) as pool:
+            nearest_cache = dict(
+                zip(
+                    unique_coords.keys(),
+                    pool.map(lambda coord: _fetch(coord, client), unique_coords.values()),
                 )
-            except Exception:
-                nearest_cache[cache_key] = None
+            )
+
+    for node in nodes:
+        cache_key = (round(float(node["lng"]), 7), round(float(node["lat"]), 7))
         snapped = nearest_cache[cache_key]
         if snapped is None:
             snapped_nodes.append(node)

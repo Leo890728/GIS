@@ -6,6 +6,9 @@ domain-specific steps (node sourcing, disposal selection) to the generic
 OSRM/OR-Tools core.
 """
 
+import logging
+import time
+
 from backend.services.vrp.config import _parse_config
 from backend.services.vrp.nodes import (
     _aggregate_pickup_nodes,
@@ -25,7 +28,19 @@ from backend.services.vrp.response import _build_response
 from backend.services.vrp.solver import _solve_vrp, _to_int_matrix
 
 
+logger = logging.getLogger(__name__)
+
+
 def solve_garbage_vrp(payload, dataset_service, regions_service):
+    timings = {}
+    _t = time.perf_counter()
+
+    def _mark(phase):
+        nonlocal _t
+        now = time.perf_counter()
+        timings[phase] = now - _t
+        _t = now
+
     payload = _as_dict(payload, "Body")
     node_source = _as_dict(payload.get("nodeSource"), "nodeSource")
     range_payload = _as_dict(payload.get("range"), "range")
@@ -63,6 +78,7 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
     raw_node_count = len(pickup_nodes)
     if raw_node_count == 0:
         raise LookupError("No valid pickup nodes in selected range")
+    _mark("collect")
 
     pickup_nodes, snapped_node_count = _snap_pickup_nodes_to_road(
         pickup_nodes,
@@ -71,6 +87,7 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
         osrm_base_url=config.osrm_base_url,
         profile=config.profile,
     )
+    _mark("snap")
 
     pickup_nodes, aggregated = _aggregate_pickup_nodes(
         pickup_nodes,
@@ -93,6 +110,7 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
             osrm_base_url=config.osrm_base_url,
             profile=config.profile,
         )
+    _mark("aggregate")
 
     disposal_nodes = _collect_disposal_nodes(disposal_payload, dataset_service)
     if not disposal_nodes:
@@ -128,9 +146,12 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
     )
 
     coordinates = [(node["lng"], node["lat"]) for node in nodes]
+    _mark("disposal")
     raw_distances, raw_durations = _build_osrm_table(coordinates, config.osrm_base_url, config.profile)
+    _mark("table")
     distance_matrix = _to_int_matrix(raw_distances)
     duration_matrix = _to_int_matrix(raw_durations)
+    _mark("matrix")
 
     solved = _solve_vrp(
         nodes=nodes,
@@ -141,6 +162,14 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
         config=config,
         duration_matrix=duration_matrix,
         distance_matrix=distance_matrix,
+    )
+    _mark("solve")
+    logger.info(
+        "garbage VRP timings: raw_nodes=%d vrp_nodes=%d %s total=%.2fs",
+        raw_node_count,
+        len(nodes),
+        " ".join(f"{name}={seconds:.2f}s" for name, seconds in timings.items()),
+        sum(timings.values()),
     )
 
     return _build_response(
