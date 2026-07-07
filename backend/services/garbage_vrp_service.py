@@ -24,6 +24,7 @@ from backend.services.vrp.nodes import (
 )
 from backend.services.vrp.osrm_client import _build_osrm_table
 from backend.services.vrp.payload import _as_dict, _as_float, _as_string
+from backend.services.vrp.pyvrp_solver import _solve_vrp_pyvrp
 from backend.services.vrp.response import _build_response
 from backend.services.vrp.solver import _solve_vrp, _to_int_matrix
 
@@ -153,7 +154,8 @@ def solve_garbage_vrp(payload, dataset_service, regions_service):
     duration_matrix = _to_int_matrix(raw_durations)
     _mark("matrix")
 
-    solved = _solve_vrp(
+    solver_fn = _solve_vrp_pyvrp if config.engine == "pyvrp" else _solve_vrp
+    solved = solver_fn(
         nodes=nodes,
         pickup_indices=pickup_indices,
         disposal_indices=disposal_indices,

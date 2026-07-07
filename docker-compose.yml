@@ -60,6 +60,7 @@ services:
       VRP_TABLE_BLOCK_MAX_COORDS: ${VRP_TABLE_BLOCK_MAX_COORDS:-600}
       VRP_TABLE_MAX_PARALLEL_REQUESTS: ${VRP_TABLE_MAX_PARALLEL_REQUESTS:-8}
       VRP_SNAP_MAX_PARALLEL_REQUESTS: ${VRP_SNAP_MAX_PARALLEL_REQUESTS:-16}
+      VRP_SOLVER_ENGINE: ${VRP_SOLVER_ENGINE:-ortools}
       SPATIALITE_EXTENSION_PATH: "/usr/lib/x86_64-linux-gnu/mod_spatialite.so"
     volumes:
       - ./backend/data:/app/backend/data

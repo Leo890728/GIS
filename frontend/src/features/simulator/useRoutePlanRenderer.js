@@ -2,10 +2,10 @@ import { computed, ref } from 'vue'
 import { bearingToTruckIconSuffix, pathBearingAt } from './routePlanTracks'
 import {
   activePropertiesAt,
+  countAtOrBefore,
   interpolateSegmentsAt,
-  pathIndexAt,
-  remainingCoords,
-  traveledCoords
+  pathCumulativeDistances,
+  pathProgressAt
 } from './trackInterpolation'
 
 const emptyFeatureCollection = () => ({ type: 'FeatureCollection', features: [] })
@@ -20,16 +20,24 @@ const emptyFeatureCollection = () => ({ type: 'FeatureCollection', features: [] 
 export const useRoutePlanRenderer = ({ state }) => {
   let tracks = []
   let lastRenderReal = 0
+  // Cumulative distances per track key, so per-frame progress stays O(log n).
+  let cumulativeByKey = new Map()
 
   const pointsGeoJson = ref(emptyFeatureCollection())
-  // Per-frame route split: the already-traveled portion (drawn translucent) and
-  // the remaining portion (solid), both colored per vehicle.
-  const traveledGeoJson = ref(emptyFeatureCollection())
-  const remainingGeoJson = ref(emptyFeatureCollection())
+  // Static per-vehicle route lines, uploaded to the map ONCE per simulation.
+  // The traveled/remaining visual split is a per-frame line-progress fraction
+  // (lineProgress) applied as a line-gradient paint property — rebuilding the
+  // split as two LineStrings per tick re-parsed and re-uploaded the entire
+  // road geometry and caused visible stutter on long routes.
+  const linesGeoJson = ref(emptyFeatureCollection())
+  // Per-vehicle traveled fraction `{ [vehicleId]: 0..1 }`, written every frame.
+  const lineProgress = ref({})
   // Pickup stops weighted by collected garbage, for the toggleable heatmap view.
   const heatGeoJson = ref(emptyFeatureCollection())
   // Per-vehicle playback progress `{ [vehicleId]: { visitedStops } }` consumed
-  // by the map to fade already-served stops.
+  // by the map to fade already-served stops. Only reassigned when a count
+  // actually changes: its watcher recompiles stop-fade paint expressions over
+  // every stop feature, which is far too heavy to run per frame.
   const progress = ref({})
 
   const hasTracks = () => tracks.length > 0
@@ -38,28 +46,38 @@ export const useRoutePlanRenderer = ({ state }) => {
   const setTracks = (nextTracks, nextHeatGeoJson) => {
     tracks = nextTracks
     heatGeoJson.value = nextHeatGeoJson || emptyFeatureCollection()
+    cumulativeByKey = new Map()
+    const lineFeatures = []
+    for (const track of tracks) {
+      const path = track.segments[0]?.path || []
+      cumulativeByKey.set(track.key, pathCumulativeDistances(path))
+      if (path.length >= 2) {
+        lineFeatures.push({
+          type: 'Feature',
+          properties: { ...track.properties },
+          geometry: { type: 'LineString', coordinates: path.map((point) => [point.lng, point.lat]) }
+        })
+      }
+    }
+    linesGeoJson.value = { type: 'FeatureCollection', features: lineFeatures }
+    lineProgress.value = {}
   }
 
   const clear = () => {
     tracks = []
+    cumulativeByKey = new Map()
     pointsGeoJson.value = emptyFeatureCollection()
-    traveledGeoJson.value = emptyFeatureCollection()
-    remainingGeoJson.value = emptyFeatureCollection()
+    linesGeoJson.value = emptyFeatureCollection()
+    lineProgress.value = {}
     heatGeoJson.value = emptyFeatureCollection()
     progress.value = {}
   }
 
-  // The traveled/remaining split lines carry the full road geometry, so every
-  // reassignment costs a MapLibre setData (reparse + GPU upload) of thousands
-  // of vertices per vehicle. Their shape only changes when some vehicle crosses
-  // a geometry vertex, so rebuilds are gated on that signature; the interpolated
-  // vehicle points still move every frame. `forceLines` (seeks, selection,
-  // periodic refresh) bypasses the gate so the line tips re-attach to the trucks.
-  let lastLineSignature = null
-
-  const render = (ms, forceLines = true) => {
+  const render = (ms) => {
     const features = []
-    let lineSignature = ''
+    const nextLineProgress = {}
+    const nextProgress = {}
+    let progressChanged = false
     for (const track of tracks) {
       // Clamp to the endpoints so vehicles wait at the depot before departure
       // and rest at the end depot after finishing, instead of disappearing.
@@ -76,42 +94,18 @@ export const useRoutePlanRenderer = ({ state }) => {
         },
         geometry: { type: 'Point', coordinates: position }
       })
-      lineSignature += `${track.key}:${pathIndexAt(path, ms)}|`
+      const vehicleId = track.properties.vehicleId
+      nextLineProgress[vehicleId] = pathProgressAt(path, cumulativeByKey.get(track.key), ms)
+      const visitedStops = countAtOrBefore(track.stopTimesMs, ms)
+      nextProgress[vehicleId] = { visitedStops }
+      if (progress.value[vehicleId]?.visitedStops !== visitedStops) progressChanged = true
     }
     pointsGeoJson.value = { type: 'FeatureCollection', features }
-    if (state.featureCount !== features.length) state.featureCount = features.length
-
-    if (forceLines || lineSignature !== lastLineSignature) {
-      lastLineSignature = lineSignature
-      const traveledFeatures = []
-      const remainingFeatures = []
-      const nextProgress = {}
-      for (const track of tracks) {
-        const path = track.segments[0]?.path || []
-        const traveled = traveledCoords(path, ms)
-        if (traveled.length >= 2) {
-          traveledFeatures.push({
-            type: 'Feature',
-            properties: { ...track.properties },
-            geometry: { type: 'LineString', coordinates: traveled }
-          })
-        }
-        const remaining = remainingCoords(path, ms)
-        if (remaining.length >= 2) {
-          remainingFeatures.push({
-            type: 'Feature',
-            properties: { ...track.properties },
-            geometry: { type: 'LineString', coordinates: remaining }
-          })
-        }
-        nextProgress[track.properties.vehicleId] = {
-          visitedStops: track.stopTimesMs.filter((tMs) => tMs <= ms).length
-        }
-      }
-      traveledGeoJson.value = { type: 'FeatureCollection', features: traveledFeatures }
-      remainingGeoJson.value = { type: 'FeatureCollection', features: remainingFeatures }
+    lineProgress.value = nextLineProgress
+    if (progressChanged || Object.keys(progress.value).length !== Object.keys(nextProgress).length) {
       progress.value = nextProgress
     }
+    if (state.featureCount !== features.length) state.featureCount = features.length
     // Keep the selection ring pinned to the selected vehicle as it moves, and
     // recenter the camera when auto-follow is on.
     if (state.selected?.key != null) {
@@ -121,19 +115,11 @@ export const useRoutePlanRenderer = ({ state }) => {
     }
   }
 
-  // Same ~60fps cap the smooth renderer uses during continuous play. During
-  // play the heavy split lines only rebuild on vertex crossings (see render),
-  // plus a ~5Hz forced refresh so the line tips never trail visibly on long
-  // straight segments with sparse vertices.
-  let lastLineForceReal = 0
+  // Same ~60fps cap the smooth renderer uses during continuous play.
   const renderTick = (ms, realNow = null) => {
     if (realNow != null) {
       if (realNow - lastRenderReal < 16) return
       lastRenderReal = realNow
-      const forceLines = realNow - lastLineForceReal >= 200
-      if (forceLines) lastLineForceReal = realNow
-      render(ms, forceLines)
-      return
     }
     render(ms)
   }
@@ -172,8 +158,8 @@ export const useRoutePlanRenderer = ({ state }) => {
 
   return {
     pointsGeoJson,
-    traveledGeoJson,
-    remainingGeoJson,
+    linesGeoJson,
+    lineProgress,
     heatGeoJson,
     progress,
     hasTracks,

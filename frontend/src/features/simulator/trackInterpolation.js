@@ -73,6 +73,53 @@ export const activePropertiesAt = (samples, ms) => {
   return samples[pathIndexAt(samples, ms)].properties
 }
 
+// Cumulative planar distances (meters) per path vertex. Precomputed once per
+// track so per-frame progress lookups stay O(log n).
+export const pathCumulativeDistances = (path) => {
+  const cumulative = new Array(path.length).fill(0)
+  let total = 0
+  for (let i = 1; i < path.length; i += 1) {
+    const a = path[i - 1]
+    const b = path[i]
+    const midLatRad = (((a.lat + b.lat) / 2) * Math.PI) / 180
+    const dx = (b.lng - a.lng) * Math.cos(midLatRad) * 111320
+    const dy = (b.lat - a.lat) * 110540
+    total += Math.hypot(dx, dy)
+    cumulative[i] = total
+  }
+  return cumulative
+}
+
+// Fraction [0, 1] of the path's total length traveled at instant `ms`, using
+// the cumulative distances from pathCumulativeDistances. Drives the MapLibre
+// line-progress gradient split, so it must be distance- (not time-) based to
+// line up with the geometry.
+export const pathProgressAt = (path, cumulative, ms) => {
+  if (!path || path.length < 2 || !cumulative) return 0
+  const total = cumulative[cumulative.length - 1]
+  if (!(total > 0)) return ms >= path[path.length - 1].tMs ? 1 : 0
+  if (ms <= path[0].tMs) return 0
+  if (ms >= path[path.length - 1].tMs) return 1
+  const i = pathIndexAt(path, ms)
+  const a = path[i]
+  const b = path[i + 1]
+  const span = b.tMs - a.tMs
+  const f = span > 0 ? (ms - a.tMs) / span : 0
+  return (cumulative[i] + (cumulative[i + 1] - cumulative[i]) * f) / total
+}
+
+// Count of sorted timestamps at or before `ms` (binary search).
+export const countAtOrBefore = (sortedTimes, ms) => {
+  let lo = 0
+  let hi = sortedTimes.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (sortedTimes[mid] <= ms) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
 const isTimeSorted = (path) => {
   for (let i = 1; i < path.length; i += 1) {
     if (path[i].tMs < path[i - 1].tMs) return false

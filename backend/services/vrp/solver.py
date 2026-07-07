@@ -32,6 +32,49 @@ def _to_int_matrix(raw_matrix):
     return matrix
 
 
+def _attach_route_geometry(vehicle_stops, config):
+    """OSRM road geometry + per-leg data/instructions for a stop sequence.
+
+    Mutates the stops' leg fields on success and returns
+    ``(geometry, geometry_source, geometry_fallback_reason)``; on any OSRM
+    failure the straight-line geometry between stops is returned instead.
+    Shared by the OR-Tools and PyVRP engines.
+    """
+    geometry = {
+        "type": "LineString",
+        "coordinates": [[stop["lng"], stop["lat"]] for stop in vehicle_stops],
+    }
+    geometry_source = "straight_fallback"
+    geometry_fallback_reason = ""
+    try:
+        route_coordinates = [(stop["lng"], stop["lat"]) for stop in vehicle_stops]
+        osrm_geometry, osrm_legs = _build_route_geometry_from_osrm(
+            coordinates=route_coordinates,
+            osrm_base_url=config.osrm_base_url,
+            profile=config.profile,
+            max_waypoints_per_call=config.route_max_waypoints_per_call,
+            max_url_length=config.route_max_url_length,
+        )
+        geometry = osrm_geometry
+        geometry_source = "osrm_route"
+        for leg_index, leg in enumerate(osrm_legs):
+            stop_index = leg_index + 1
+            if stop_index >= len(vehicle_stops):
+                break
+            if not isinstance(leg, dict):
+                continue
+            if isinstance(leg.get("distance"), (int, float)):
+                vehicle_stops[stop_index]["legFromPrevDistanceM"] = int(round(leg["distance"]))
+            if isinstance(leg.get("duration"), (int, float)):
+                vehicle_stops[stop_index]["legFromPrevDurationS"] = int(round(leg["duration"]))
+            # 這一段（前一站 -> 本站）的逐步導航指示。
+            vehicle_stops[stop_index]["instructions"] = leg_instructions(leg)
+    except Exception as err:
+        geometry_source = "straight_fallback"
+        geometry_fallback_reason = str(err)
+    return geometry, geometry_source, geometry_fallback_reason
+
+
 def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_node_index, config, duration_matrix, distance_matrix):
     if pywrapcp is None or routing_enums_pb2 is None:
         raise RuntimeError("ortools is not installed")
@@ -178,39 +221,9 @@ def _solve_vrp(nodes, pickup_indices, disposal_indices, start_node_index, end_no
         )
 
         if visited_pickups > 0:
-            geometry = {
-                "type": "LineString",
-                "coordinates": [[stop["lng"], stop["lat"]] for stop in vehicle_stops],
-            }
-            geometry_source = "straight_fallback"
-            geometry_fallback_reason = ""
             _geometry_started = time.perf_counter()
-            try:
-                route_coordinates = [(stop["lng"], stop["lat"]) for stop in vehicle_stops]
-                osrm_geometry, osrm_legs = _build_route_geometry_from_osrm(
-                    coordinates=route_coordinates,
-                    osrm_base_url=config.osrm_base_url,
-                    profile=config.profile,
-                    max_waypoints_per_call=config.route_max_waypoints_per_call,
-                    max_url_length=config.route_max_url_length,
-                )
-                geometry = osrm_geometry
-                geometry_source = "osrm_route"
-                for leg_index, leg in enumerate(osrm_legs):
-                    stop_index = leg_index + 1
-                    if stop_index >= len(vehicle_stops):
-                        break
-                    if not isinstance(leg, dict):
-                        continue
-                    if isinstance(leg.get("distance"), (int, float)):
-                        vehicle_stops[stop_index]["legFromPrevDistanceM"] = int(round(leg["distance"]))
-                    if isinstance(leg.get("duration"), (int, float)):
-                        vehicle_stops[stop_index]["legFromPrevDurationS"] = int(round(leg["duration"]))
-                    # 這一段（前一站 -> 本站）的逐步導航指示。
-                    vehicle_stops[stop_index]["instructions"] = leg_instructions(leg)
-            except Exception as err:
-                geometry_source = "straight_fallback"
-                geometry_fallback_reason = str(err)
+            geometry, geometry_source, geometry_fallback_reason = _attach_route_geometry(vehicle_stops, config)
+            if geometry_source == "straight_fallback":
                 geometry_fallback_route_count += 1
             geometry_seconds += time.perf_counter() - _geometry_started
 

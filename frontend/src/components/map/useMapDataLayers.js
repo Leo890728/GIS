@@ -218,7 +218,10 @@ export const useMapDataLayers = (mapRef, dataLayerStateRef, dataLayerGeoJsonRef)
             visibility: getLayerVisibility(entry, 'points'),
             'icon-image': ['case', ['has', '__style_iconId'], ['image', ['get', '__style_iconId']], ['image', iconId]],
             'icon-size': getIconSizeExpr(entry),
-            'icon-allow-overlap': true
+            'icon-allow-overlap': true,
+            // Icons always draw (allow-overlap), so keeping them out of the
+            // collision index skips pointless placement work on dense layers.
+            'icon-ignore-placement': true
           },
           paint: {
             'icon-opacity': 0.92

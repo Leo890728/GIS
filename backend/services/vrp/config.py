@@ -37,6 +37,7 @@ class _SolveConfig:
     aggregate_threshold: int
     snap_to_road_enabled: bool
     snap_to_road_max_distance_m: float
+    engine: str = "ortools"
 
 
 def _parse_config(payload):
@@ -96,6 +97,9 @@ def _parse_config(payload):
         raise ValueError("solver must be an object")
     time_limit_sec = _as_int(solver_payload.get("timeLimitSec"), "solver.timeLimitSec", minimum=1, default=15)
     random_seed = _as_int(solver_payload.get("randomSeed"), "solver.randomSeed", minimum=0, default=0)
+    engine = solver_payload.get("engine") or os.getenv("VRP_SOLVER_ENGINE") or "ortools"
+    if engine not in {"ortools", "pyvrp"}:
+        raise ValueError("solver.engine must be ortools or pyvrp")
 
     aggregation_payload = payload.get("aggregation") or {}
     if not isinstance(aggregation_payload, dict):
@@ -130,6 +134,7 @@ def _parse_config(payload):
             capacity_kg=capacity_kg,
             time_limit_sec=time_limit_sec,
             random_seed=random_seed,
+            engine=engine,
             metric=metric,
             profile=profile,
             osrm_base_url=osrm_base_url,

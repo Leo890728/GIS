@@ -213,6 +213,17 @@ const nextLegSteps = (route, idx) => {
         </div>
       </div>
 
+      <label class="field-label" for="route-solver-engine">求解器</label>
+      <select
+        id="route-solver-engine"
+        class="field-control"
+        :value="routeForm.solverEngine"
+        @change="updateText('solverEngine', $event)"
+      >
+        <option value="ortools">OR-Tools（GLS）</option>
+        <option value="pyvrp">PyVRP（HGS，多趟不設限）</option>
+      </select>
+
       <div class="field-row">
         <div class="field-col">
           <label class="field-label" for="route-time-limit">求解時間上限 (秒)</label>

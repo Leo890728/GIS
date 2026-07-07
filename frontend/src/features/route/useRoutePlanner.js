@@ -55,7 +55,8 @@ const createInitialForm = () => ({
   costProfile: 'driving',
   osrmBaseUrl: import.meta.env.VITE_OSRM_BASE_URL || 'http://localhost:5001',
   solverTimeLimitSec: 15,
-  solverRandomSeed: 1
+  solverRandomSeed: 1,
+  solverEngine: 'ortools'
 })
 
 export const getVehicleColor = (index) => VEHICLE_COLOR_PALETTE[index % VEHICLE_COLOR_PALETTE.length]
@@ -316,7 +317,8 @@ export const useRoutePlanner = (apiBaseUrl, selectedRangeRequestRef, selectedRan
         },
         solver: {
           timeLimitSec: Number(routeForm.value.solverTimeLimitSec),
-          randomSeed: Number(routeForm.value.solverRandomSeed)
+          randomSeed: Number(routeForm.value.solverRandomSeed),
+          engine: routeForm.value.solverEngine || 'ortools'
         }
       }
 

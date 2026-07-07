@@ -82,13 +82,13 @@ const props = defineProps({
     type: Object,
     default: () => ({ type: 'FeatureCollection', features: [] })
   },
-  routeSimTraveledGeoJson: {
+  routeSimLinesGeoJson: {
     type: Object,
     default: () => ({ type: 'FeatureCollection', features: [] })
   },
-  routeSimRemainingGeoJson: {
+  routeSimLineProgress: {
     type: Object,
-    default: () => ({ type: 'FeatureCollection', features: [] })
+    default: () => ({})
   },
   routeSimHeatGeoJson: {
     type: Object,
@@ -281,6 +281,15 @@ const applyBasemap = (basemap) => {
   }
 }
 
+// Dynamic per-vehicle route-sim line layers (created in syncRouteSimLineLayers;
+// one per vehicle because line-gradient is a per-layer paint property).
+// routeSimLineLayerIds doubles as the z-order within the block: finished
+// vehicles' lines are sorted first (bottom) so still-driving routes stay on top.
+let routeSimLineLayerIds = []
+let routeSimLineColors = {}
+let routeSimLineLastBoundary = {}
+let routeSimLineFinished = {}
+
 const enforceLayerOrder = () => {
   const m = map.value
   if (!m) return
@@ -290,8 +299,7 @@ const enforceLayerOrder = () => {
     ...getBoundaryLayerIds(props.layerState),
     ...getDataLayerIds(props.dataLayerState),
     'route-line-layer',
-    'route-sim-line-traveled-layer',
-    'route-sim-line-remaining-layer',
+    ...routeSimLineLayerIds,
     'route-sim-heat-layer',
     'route-stop-layer',
     'route-stop-order-layer',
@@ -516,7 +524,12 @@ const createMap = () => {
     center: [120.9605, 23.6978],
     zoom: 7,
     minZoom: 6,
-    maxZoom: 20
+    maxZoom: 20,
+    // Per-source symbol collision: the simulator updates its truck source every
+    // frame, and global (cross-source) placement would re-run collision over
+    // every visible label/icon on each update — a continuous stutter when
+    // zoomed in. Sources here don't need to collide with each other.
+    crossSourceCollisions: false
   })
 
   map.value.addControl(new maplibregl.NavigationControl(), 'top-right')
@@ -883,7 +896,7 @@ const applyRouteSimProgress = () => {
   }
   routeSimPaintApplied = true
 
-  // The traveled/remaining split layers replace the static route lines.
+  // The gradient-split simulation lines replace the static route lines.
   if (m.getLayer('route-line-layer')) {
     m.setLayoutProperty('route-line-layer', 'visibility', 'none')
   }
@@ -932,8 +945,8 @@ watch(
 
 // Simulated garbage-truck positions during route-plan playback: a truck sprite
 // per vehicle (8-direction tcg-v2 set, picked by heading in `truckIconId`),
-// with the vehicle id above in the vehicle's color. The traveled/remaining
-// route split renders beneath the stop dots (see enforceLayerOrder) so stops
+// with the vehicle id above in the vehicle's color. The per-vehicle gradient
+// route lines render beneath the stop dots (see enforceLayerOrder) so stops
 // stay clickable and visible on top of the lines.
 const ROUTE_SIM_TRUCK_ICONS = Array.from({ length: 8 }, (_, index) => ({
   id: `tcg-v2-garbage-o0${index + 1}`,
@@ -949,15 +962,16 @@ const ensureRouteSimLayers = () => {
   if (!m.getSource('route-sim-source')) {
     m.addSource('route-sim-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
   }
-  if (!m.getSource('route-sim-line-traveled-source')) {
-    m.addSource('route-sim-line-traveled-source', {
+  if (!m.getSource('route-sim-line-source')) {
+    // lineMetrics enables line-progress, which drives the traveled/remaining
+    // gradient split without ever re-uploading the route geometry.
+    // maxzoom 16: beyond it tiles overzoom (~0.6 m quantization, invisible at
+    // line widths) instead of re-slicing the huge route geometry on every
+    // high-zoom pan — auto-follow moves the camera every frame.
+    m.addSource('route-sim-line-source', {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] }
-    })
-  }
-  if (!m.getSource('route-sim-line-remaining-source')) {
-    m.addSource('route-sim-line-remaining-source', {
-      type: 'geojson',
+      lineMetrics: true,
+      maxzoom: 16,
       data: { type: 'FeatureCollection', features: [] }
     })
   }
@@ -976,34 +990,6 @@ const ensureRouteSimLayers = () => {
         'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 8, 14, 12, 26, 16, 44],
         'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 14, 1.4],
         'heatmap-opacity': 0.75
-      }
-    })
-  }
-  if (!m.getLayer('route-sim-line-traveled-layer')) {
-    createdLayers = true
-    m.addLayer({
-      id: 'route-sim-line-traveled-layer',
-      type: 'line',
-      source: 'route-sim-line-traveled-source',
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': ['get', 'vehicleColor'],
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 3.2, 16, 5.0],
-        'line-opacity': 0.28
-      }
-    })
-  }
-  if (!m.getLayer('route-sim-line-remaining-layer')) {
-    createdLayers = true
-    m.addLayer({
-      id: 'route-sim-line-remaining-layer',
-      type: 'line',
-      source: 'route-sim-line-remaining-source',
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: {
-        'line-color': ['get', 'vehicleColor'],
-        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 3.2, 16, 5.0],
-        'line-opacity': 0.9
       }
     })
   }
@@ -1064,9 +1050,98 @@ const setRouteSimSourceData = (sourceId, fc) => {
 // frame, so the heavier line/heat sources must not re-upload with them.
 const bindRouteSimSource = (getter, sourceId) => watch(getter, (fc) => setRouteSimSourceData(sourceId, fc))
 bindRouteSimSource(() => props.routeSimGeoJson, 'route-sim-source')
-bindRouteSimSource(() => props.routeSimTraveledGeoJson, 'route-sim-line-traveled-source')
-bindRouteSimSource(() => props.routeSimRemainingGeoJson, 'route-sim-line-remaining-source')
 bindRouteSimSource(() => props.routeSimHeatGeoJson, 'route-sim-heat-source')
+
+// Per-vehicle route lines with a line-progress gradient split: the geometry is
+// uploaded once per simulation (routeSimLinesGeoJson), and playback only moves
+// the gradient boundary (routeSimLineProgress) via a paint-property update —
+// no per-frame geometry re-parse/re-upload, which used to stutter on long
+// routes. line-gradient is per-layer, hence one filtered layer per vehicle.
+const routeSimLineLayerId = (vehicleId) => `route-sim-line-layer-${vehicleId}`
+
+const hexToRgba = (hex, alpha) => {
+  const value = String(hex || '').replace('#', '')
+  const digits = value.length === 3 ? value.split('').map((c) => c + c) : [value.slice(0, 2), value.slice(2, 4), value.slice(4, 6)]
+  const [r, g, b] = digits.map((pair) => parseInt(pair, 16))
+  if (![r, g, b].every(Number.isFinite)) return `rgba(249, 115, 22, ${alpha})`
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+const routeSimLineGradient = (vehicleId, fraction) => {
+  const color = routeSimLineColors[vehicleId] || '#f97316'
+  const boundary = Math.min(1, Math.max(0.000001, Number(fraction) || 0))
+  return ['step', ['line-progress'], hexToRgba(color, 0.28), boundary, hexToRgba(color, 0.9)]
+}
+
+const applyRouteSimLineProgress = () => {
+  const m = map.value
+  if (!m || !mapLoaded.value) return
+  let finishOrderChanged = false
+  for (const [vehicleId, fraction] of Object.entries(props.routeSimLineProgress || {})) {
+    const layerId = routeSimLineLayerId(vehicleId)
+    if (!m.getLayer(layerId)) continue
+    const boundary = Math.min(1, Math.max(0.000001, Number(fraction) || 0))
+    // A finished vehicle's line sinks below the ones still driving (and rises
+    // back when the clock is scrubbed backwards past its arrival).
+    const finished = boundary >= 1
+    if ((routeSimLineFinished[layerId] === true) !== finished) {
+      routeSimLineFinished[layerId] = finished
+      finishOrderChanged = true
+    }
+    // Skip sub-0.0001 moves (a few meters on city-scale routes): dwells and
+    // slow legs would otherwise churn paint updates for invisible changes.
+    if (Math.abs((routeSimLineLastBoundary[layerId] ?? -1) - boundary) < 0.0001) continue
+    routeSimLineLastBoundary[layerId] = boundary
+    m.setPaintProperty(layerId, 'line-gradient', routeSimLineGradient(vehicleId, boundary))
+  }
+  if (finishOrderChanged) {
+    routeSimLineLayerIds = [
+      ...routeSimLineLayerIds.filter((layerId) => routeSimLineFinished[layerId] === true),
+      ...routeSimLineLayerIds.filter((layerId) => routeSimLineFinished[layerId] !== true)
+    ]
+    enforceLayerOrder()
+  }
+}
+
+const syncRouteSimLineLayers = () => {
+  if (!ensureRouteSimLayers()) return
+  const m = map.value
+  const fc = props.routeSimLinesGeoJson || { type: 'FeatureCollection', features: [] }
+  m.getSource('route-sim-line-source').setData(fc)
+  const nextIds = []
+  routeSimLineColors = {}
+  for (const feature of fc.features || []) {
+    const vehicleId = feature?.properties?.vehicleId
+    if (vehicleId == null) continue
+    routeSimLineColors[vehicleId] = feature.properties.vehicleColor
+    const layerId = routeSimLineLayerId(vehicleId)
+    nextIds.push(layerId)
+    if (!m.getLayer(layerId)) {
+      m.addLayer({
+        id: layerId,
+        type: 'line',
+        source: 'route-sim-line-source',
+        filter: ['==', ['get', 'vehicleId'], vehicleId],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 3.2, 16, 5.0],
+          'line-gradient': routeSimLineGradient(vehicleId, 0)
+        }
+      })
+    }
+  }
+  for (const layerId of routeSimLineLayerIds) {
+    if (!nextIds.includes(layerId) && m.getLayer(layerId)) m.removeLayer(layerId)
+  }
+  routeSimLineLayerIds = nextIds
+  routeSimLineLastBoundary = {}
+  routeSimLineFinished = {}
+  enforceLayerOrder()
+  applyRouteSimLineProgress()
+}
+
+watch(() => props.routeSimLinesGeoJson, syncRouteSimLineLayers)
+watch(() => props.routeSimLineProgress, applyRouteSimLineProgress)
 
 onMounted(() => {
   createMap()

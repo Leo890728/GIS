@@ -84,8 +84,11 @@ export const useMapRouteLayers = (
     const vehicleFilterState = getVehicleFilterState(visibility.vehicles)
 
     if (!map.getSource(routeLineSourceId)) {
+      // maxzoom 16: overzoom instead of re-slicing the full route geometry on
+      // every high-zoom pan (quantization ~0.6 m — invisible at line widths).
       map.addSource(routeLineSourceId, {
         type: 'geojson',
+        maxzoom: 16,
         data: routeLineGeoJsonRef.value || emptyFeatureCollection()
       })
     }

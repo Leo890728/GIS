@@ -51,8 +51,8 @@ const {
   simulatorCandidates,
   simulatorSpeeds,
   routeSimGeoJson,
-  routeSimTraveledGeoJson,
-  routeSimRemainingGeoJson,
+  routeSimLinesGeoJson,
+  routeSimLineProgress,
   routeSimHeatGeoJson,
   routeSimProgress,
   selectedRouteVehicle,
@@ -193,8 +193,8 @@ const handleToggleRouteLayer = (layerKey) => {
         :simulator-state="simulatorState"
         :simulator-speeds="simulatorSpeeds"
         :route-sim-geo-json="routeSimGeoJson"
-        :route-sim-traveled-geo-json="routeSimTraveledGeoJson"
-        :route-sim-remaining-geo-json="routeSimRemainingGeoJson"
+        :route-sim-lines-geo-json="routeSimLinesGeoJson"
+        :route-sim-line-progress="routeSimLineProgress"
         :route-sim-heat-geo-json="routeSimHeatGeoJson"
         :route-sim-progress="routeSimProgress"
         :route-sim-selected-vehicle="selectedRouteVehicle"
