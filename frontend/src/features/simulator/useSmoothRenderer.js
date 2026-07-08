@@ -1,4 +1,5 @@
 import { applyDataStyleHandler } from '../data/styleHandlers'
+import { bearingToArrow, segmentsBearingAt } from './routePlanTracks'
 import { streamHistoryTrack } from './simulatorApi'
 import { activePropertiesAt, interpolateSegmentsAt, isWithinTrackSegment, normalizeSmoothTracks } from './trackInterpolation'
 
@@ -58,9 +59,18 @@ export const useSmoothRenderer = ({ apiBaseUrl, state, dataLayers, getLayerEntry
       if (!isWithinTrackSegment(track.segments, ms)) continue
       const position = interpolateSegmentsAt(track.segments, ms)
       if (!position) continue
+      const properties = { ...activePropertiesAt(track.samples, ms), __trackKey: track.key }
+      // Re-derive the heading from the OSRM-smoothed path so the truck icon
+      // faces its actual direction of travel (same basis as route-plan
+      // playback), rather than the recorded per-capture `direct` which no longer
+      // lines up once positions are snapped to roads. Only tracks that recorded
+      // a direction opt in, so datasets without directional icons are untouched.
+      if (properties.direct != null) {
+        properties.direct = bearingToArrow(segmentsBearingAt(track.segments, ms))
+      }
       features.push({
         type: 'Feature',
-        properties: { ...activePropertiesAt(track.samples, ms), __trackKey: track.key },
+        properties,
         geometry: { type: 'Point', coordinates: position }
       })
     }

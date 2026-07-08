@@ -58,6 +58,7 @@ const {
   selectedRouteVehicle,
   startRouteSimulation,
   toggleRouteHeatmap,
+  toggleTraveledGrey,
   selectSimulatorDataset,
   setSimulatorTime,
   toggleSimulatorPlay,
@@ -213,6 +214,7 @@ const handleToggleRouteLayer = (layerKey) => {
         @simulator-set-window="setSimulatorWindow($event.from, $event.to)"
         @simulator-toggle-live="toggleSimulatorLive"
         @simulator-toggle-route-heatmap="toggleRouteHeatmap"
+        @simulator-toggle-traveled-grey="toggleTraveledGrey"
         @simulator-toggle-follow="toggleSimulatorAutoFollow"
         @simulator-select-feature="selectSimulatorFeature"
         @simulator-toggle-track="toggleSimulatorTrack"

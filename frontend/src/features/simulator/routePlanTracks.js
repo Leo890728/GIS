@@ -172,12 +172,40 @@ export const pathBearingAt = (path, ms) => {
   return (Math.atan2(dx, dy) * (180 / Math.PI) + 360) % 360
 }
 
+// 8-way heading buckets in clockwise order from north. Index `i` maps to the
+// tcg-v2 sprite suffix o0{i+1} AND to the matching `direct` arrow glyph, so a
+// bearing computed from geometry and a recorded arrow resolve to the same icon.
+const TRUCK_HEADING_ARROWS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖']
+
+const bearingIndex = (bearing) => {
+  const normalized = ((Number(bearing) % 360) + 360) % 360
+  return Math.round(normalized / 45) % 8
+}
+
 // Map a bearing onto the 8-direction truck sprite suffix used by the tcg-v2
 // icon set: o01 = ↑ (north), then clockwise every 45° through o08 = ↖.
-export const bearingToTruckIconSuffix = (bearing) => {
-  const normalized = ((Number(bearing) % 360) + 360) % 360
-  const index = Math.round(normalized / 45) % 8
-  return `o0${index + 1}`
+export const bearingToTruckIconSuffix = (bearing) => `o0${bearingIndex(bearing) + 1}`
+
+// Map a bearing onto the `direct` arrow glyph the directional-icon style handler
+// keys off, so a smoothed-path heading can be fed through that handler exactly
+// like a recorded direction (see useSmoothRenderer).
+export const bearingToArrow = (bearing) => TRUCK_HEADING_ARROWS[bearingIndex(bearing)]
+
+// Segment-aware heading for history tracks, which span multiple recorded
+// segments across recording gaps: take the bearing within the segment the clock
+// currently sits in (falling back to the last segment outside all spans).
+export const segmentsBearingAt = (segments, ms) => {
+  if (!Array.isArray(segments) || !segments.length) return 0
+  let path = null
+  for (const seg of segments) {
+    const p = seg?.path
+    if (p && p.length && ms >= p[0].tMs && ms <= p[p.length - 1].tMs) {
+      path = p
+      break
+    }
+  }
+  if (!path) path = segments[segments.length - 1]?.path
+  return pathBearingAt(path || [], ms)
 }
 
 // Heat points for the stop-heatmap view: one feature per pickup stop, weighted

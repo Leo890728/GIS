@@ -82,6 +82,54 @@ describe('useSmoothRenderer window-scoped loading', () => {
     expect(renderer.coversWindow(2000, 9000)).toBe(false)
   })
 
+  it('re-derives the truck heading from the smoothed path, keeping other props', async () => {
+    const state = makeState()
+    const setSimulatorGeoJson = vi.fn()
+    const renderer = useSmoothRenderer({
+      apiBaseUrl: 'http://api',
+      state,
+      dataLayers: { setSimulatorGeoJson },
+      getLayerEntry: () => null, // pass-through: assert the pre-handler properties
+      syncSelectedPosition: vi.fn()
+    })
+    // Track heads due east; the recorded direction (↓) disagrees with travel.
+    vi.mocked(streamHistoryTrack).mockResolvedValue({
+      tracks: [
+        {
+          key: 'A',
+          properties: {},
+          segments: [{ path: [{ tMs: 2000, lng: 120, lat: 24 }, { tMs: 4000, lng: 120.01, lat: 24 }] }],
+          samples: [{ t: '1970-01-01T00:00:02.000Z', properties: { direct: '↓', cartype: 'N' } }]
+        }
+      ]
+    })
+    await renderer.loadTracks()
+
+    renderer.renderSmooth(3000)
+    const collection = setSimulatorGeoJson.mock.calls.at(-1)[0]
+    const props = collection.features[0].properties
+    expect(props.direct).toBe('→') // overridden to the eastbound heading
+    expect(props.cartype).toBe('N') // untouched
+  })
+
+  it('leaves features without a recorded direction untouched', async () => {
+    const state = makeState()
+    const setSimulatorGeoJson = vi.fn()
+    const renderer = useSmoothRenderer({
+      apiBaseUrl: 'http://api',
+      state,
+      dataLayers: { setSimulatorGeoJson },
+      getLayerEntry: () => null,
+      syncSelectedPosition: vi.fn()
+    })
+    vi.mocked(streamHistoryTrack).mockResolvedValue(trackPayload()) // samples: []
+    await renderer.loadTracks()
+
+    renderer.renderSmooth(3000)
+    const collection = setSimulatorGeoJson.mock.calls.at(-1)[0]
+    expect(collection.features[0].properties.direct).toBeUndefined()
+  })
+
   it('disable() clears every smooth flag and the loaded tracks in one place', async () => {
     const state = makeState()
     const renderer = makeRenderer(state)

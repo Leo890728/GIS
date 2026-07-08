@@ -263,6 +263,7 @@ watch(
   place-items: center;
   width: 22px;
   height: 22px;
+  padding: 0px;
   border-radius: 6px;
   border: 1px solid var(--line, #2d4161);
   background: transparent;

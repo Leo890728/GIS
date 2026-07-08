@@ -51,6 +51,10 @@ const createState = () => ({
   // the smooth renderer.
   featureCount: 0,
   routeHeatmap: false,
+  // Traveled route segments: false = per-vehicle colour (semi-transparent),
+  // true = solid grey (avoids overlapping finished routes alpha-blending into
+  // an unpredictable colour). Rendered by MapCanvasShell's line-gradient.
+  traveledGrey: false,
   smooth: false,
   smoothing: false,
   smoothProgress: { done: 0, total: 0 },
@@ -464,6 +468,9 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     startRouteSimulation,
     toggleRouteHeatmap: () => {
       if (isRoutePlanMode()) state.routeHeatmap = !state.routeHeatmap
+    },
+    toggleTraveledGrey: () => {
+      if (isRoutePlanMode()) state.traveledGrey = !state.traveledGrey
     },
     selectSimulatorDataset: selectDataset,
     setSimulatorTime: setTime,

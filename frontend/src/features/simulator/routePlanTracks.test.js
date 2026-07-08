@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { bearingToTruckIconSuffix, buildRouteHeatGeoJson, buildRoutePlanTracks, pathBearingAt } from './routePlanTracks'
+import {
+  bearingToArrow,
+  bearingToTruckIconSuffix,
+  buildRouteHeatGeoJson,
+  buildRoutePlanTracks,
+  pathBearingAt,
+  segmentsBearingAt
+} from './routePlanTracks'
 import { remainingCoords, traveledCoords } from './trackInterpolation'
 
 const BASE = 1_000_000
@@ -134,6 +141,30 @@ describe('buildRoutePlanTracks', () => {
     expect(bearingToTruckIconSuffix(315)).toBe('o08') // ↖
     expect(bearingToTruckIconSuffix(359)).toBe('o01') // wraps back to ↑
     expect(bearingToTruckIconSuffix(-90)).toBe('o07') // negative input normalizes
+  })
+
+  it('maps bearings onto the directional arrow glyphs the style handler keys off', () => {
+    expect(bearingToArrow(0)).toBe('↑')
+    expect(bearingToArrow(45)).toBe('↗')
+    expect(bearingToArrow(90)).toBe('→')
+    expect(bearingToArrow(180)).toBe('↓')
+    expect(bearingToArrow(270)).toBe('←')
+    expect(bearingToArrow(359)).toBe('↑') // wraps back to ↑
+    expect(bearingToArrow(-90)).toBe('←') // negative input normalizes
+  })
+
+  it('reads the heading from the recorded segment the clock sits in, across gaps', () => {
+    const segments = [
+      // First segment heads due east...
+      { path: [{ tMs: 0, lng: 0, lat: 0 }, { tMs: 1000, lng: 0.001, lat: 0 }] },
+      // ...then, after a recording gap, a second segment heads due north.
+      { path: [{ tMs: 5000, lng: 0.001, lat: 0 }, { tMs: 6000, lng: 0.001, lat: 0.001 }] }
+    ]
+    expect(segmentsBearingAt(segments, 500)).toBeCloseTo(90, 5)
+    expect(segmentsBearingAt(segments, 5500)).toBeCloseTo(0, 5)
+    // In the gap between segments, hold rather than throw.
+    expect(segmentsBearingAt(segments, 3000)).toBeCloseTo(0, 5)
+    expect(segmentsBearingAt([], 0)).toBe(0)
   })
 
   it('drops routes that cannot be timed and colors vehicles by index', () => {

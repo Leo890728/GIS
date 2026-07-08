@@ -32,6 +32,22 @@ const props = defineProps({
 
 const emit = defineEmits(['update-route-field', 'set-pick-mode', 'solve-route', 'clear-route'])
 
+// Hover explanations for the less self-evident fields only (a `?` badge next to
+// the label surfaces these via a native title tooltip). Obvious fields such as
+// 車輛數 / 容量 deliberately have none, to avoid noise.
+const fieldHints = {
+  demandField: '資料集中代表各節點需求量的欄位名稱（例如人口數），求解時作為每個收運點的需求來源。',
+  demandMultiplierKg: '將需求欄位的數值乘上此倍率換算成公斤，對應車輛容量的單位。',
+  solverEngine: 'OR-Tools 使用導引式局部搜尋（GLS）；PyVRP 使用 HGS 且允許車輛多趟不設限，通常較能服務所有節點。',
+  solverTimeLimitSec: '求解器運算的最長時間，時間越長越有機會找到更佳的路線。',
+  nodeLimit: '參與求解的節點數上限，超過時會截斷以控制運算量與時間。',
+  aggregationEnabled: '求解前先把鄰近點位合併成代表點，降低節點數與運算時間，代價是精度略降。',
+  aggregationCellMeters: '聚合方格的邊長，數值越大合併範圍越廣、聚合後的節點越少。',
+  aggregationThreshold: '節點總數超過此值時才會啟用聚合，避免對小規模問題做不必要的合併。',
+  snapToRoadEnabled: '求解前後把點位移到最近的道路上，讓路線與導航結果更貼合真實路網。',
+  snapToRoadMaxDistanceMeters: '點位與最近道路的距離超過此值時就不貼齊，維持原始位置。'
+}
+
 const updateText = (key, event) => {
   emit('update-route-field', { key, value: event.target.value })
 }
@@ -145,7 +161,10 @@ const nextLegSteps = (route, idx) => {
 
       <div class="field-row">
         <div class="field-col">
-          <label class="field-label" for="route-demand-field">需求欄位</label>
+          <label class="field-label" for="route-demand-field">
+            需求欄位
+            <span class="field-help" :title="fieldHints.demandField" @click.prevent>?</span>
+          </label>
           <input
             id="route-demand-field"
             class="field-control"
@@ -155,7 +174,10 @@ const nextLegSteps = (route, idx) => {
           />
         </div>
         <div class="field-col">
-          <label class="field-label" for="route-demand-mul">換算倍率 (kg)</label>
+          <label class="field-label" for="route-demand-mul">
+            換算倍率 (kg)
+            <span class="field-help" :title="fieldHints.demandMultiplierKg" @click.prevent>?</span>
+          </label>
           <div class="number-control">
             <input
               id="route-demand-mul"
@@ -213,7 +235,10 @@ const nextLegSteps = (route, idx) => {
         </div>
       </div>
 
-      <label class="field-label" for="route-solver-engine">求解器</label>
+      <label class="field-label" for="route-solver-engine">
+        求解器
+        <span class="field-help" :title="fieldHints.solverEngine" @click.prevent>?</span>
+      </label>
       <select
         id="route-solver-engine"
         class="field-control"
@@ -226,7 +251,10 @@ const nextLegSteps = (route, idx) => {
 
       <div class="field-row">
         <div class="field-col">
-          <label class="field-label" for="route-time-limit">求解時間上限 (秒)</label>
+          <label class="field-label" for="route-time-limit">
+            求解時間上限 (秒)
+            <span class="field-help" :title="fieldHints.solverTimeLimitSec" @click.prevent>?</span>
+          </label>
           <div class="number-control">
             <input
               id="route-time-limit"
@@ -244,7 +272,10 @@ const nextLegSteps = (route, idx) => {
           </div>
         </div>
         <div class="field-col">
-          <label class="field-label" for="route-limit">節點上限</label>
+          <label class="field-label" for="route-limit">
+            節點上限
+            <span class="field-help" :title="fieldHints.nodeLimit" @click.prevent>?</span>
+          </label>
           <div class="number-control">
             <input
               id="route-limit"
@@ -270,11 +301,15 @@ const nextLegSteps = (route, idx) => {
           @change="updateCheckbox('aggregationEnabled', $event)"
         />
         <span>啟用求解前聚合</span>
+        <span class="field-help" :title="fieldHints.aggregationEnabled" @click.prevent>?</span>
       </label>
 
       <div class="field-row">
         <div class="field-col">
-          <label class="field-label" for="route-cell">網格大小 (m)</label>
+          <label class="field-label" for="route-cell">
+            網格大小 (m)
+            <span class="field-help" :title="fieldHints.aggregationCellMeters" @click.prevent>?</span>
+          </label>
           <div class="number-control">
             <input
               id="route-cell"
@@ -292,7 +327,10 @@ const nextLegSteps = (route, idx) => {
           </div>
         </div>
         <div class="field-col">
-          <label class="field-label" for="route-threshold">聚合門檻</label>
+          <label class="field-label" for="route-threshold">
+            聚合門檻
+            <span class="field-help" :title="fieldHints.aggregationThreshold" @click.prevent>?</span>
+          </label>
           <div class="number-control">
             <input
               id="route-threshold"
@@ -318,9 +356,13 @@ const nextLegSteps = (route, idx) => {
           @change="updateCheckbox('snapToRoadEnabled', $event)"
         />
         <span>將點位貼齊道路（聚合前與聚合後）</span>
+        <span class="field-help" :title="fieldHints.snapToRoadEnabled" @click.prevent>?</span>
       </label>
 
-      <label class="field-label" for="route-snap-distance">貼齊道路最大距離 (m)</label>
+      <label class="field-label" for="route-snap-distance">
+        貼齊道路最大距離 (m)
+        <span class="field-help" :title="fieldHints.snapToRoadMaxDistanceMeters" @click.prevent>?</span>
+      </label>
       <div class="number-control">
         <input
           id="route-snap-distance"
@@ -468,6 +510,40 @@ const nextLegSteps = (route, idx) => {
   color: #b7d2f2;
   font-size: 10px;
   font-weight: 600;
+}
+
+/* `?` help badge; the explanation is delivered via the native title tooltip so
+   it never gets clipped by the scrolling sidebar. */
+.field-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  border-radius: 50%;
+  border: 1px solid #3a577f;
+  background: #14263f;
+  color: #9fc5f8;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: help;
+  user-select: none;
+}
+
+.field-help:hover {
+  border-color: #7cb9ff;
+  background: #28518a;
+  color: #eaf4ff;
+}
+
+/* In the checkbox rows the fixed-height badge lands a touch above the label
+   text's optical center; nudge it down so it lines up. */
+.field-check .field-help {
+  position: relative;
+  top: 1px;
 }
 
 .field-control {

@@ -123,6 +123,7 @@ const emit = defineEmits([
   'simulator-set-window',
   'simulator-toggle-live',
   'simulator-toggle-route-heatmap',
+  'simulator-toggle-traveled-grey',
   'simulator-toggle-follow',
   'simulator-select-feature',
   'simulator-toggle-track',
@@ -533,6 +534,9 @@ const createMap = () => {
   })
 
   map.value.addControl(new maplibregl.NavigationControl(), 'top-right')
+
+  // Escape hatch for profiling/debugging from the browser console.
+  window.__map = map.value
 
   map.value.on('load', async () => {
     mapLoaded.value = true
@@ -1067,39 +1071,29 @@ const hexToRgba = (hex, alpha) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+// Solid grey for the traveled portion when the "已走灰色" toggle is on: opaque
+// so overlapping finished routes don't alpha-blend into an unpredictable third
+// colour (the per-vehicle semi-transparent default reads better for tracing a
+// single vehicle's history, worse when many routes overlap).
+const ROUTE_SIM_TRAVELED_GREY = 'rgba(120, 130, 145, 0.9)'
+
 const routeSimLineGradient = (vehicleId, fraction) => {
   const color = routeSimLineColors[vehicleId] || '#f97316'
   const boundary = Math.min(1, Math.max(0.000001, Number(fraction) || 0))
-  return ['step', ['line-progress'], hexToRgba(color, 0.28), boundary, hexToRgba(color, 0.9)]
+  const traveled = props.simulatorState?.traveledGrey === true
+    ? ROUTE_SIM_TRAVELED_GREY
+    : hexToRgba(color, 0.28)
+  return ['step', ['line-progress'], traveled, boundary, hexToRgba(color, 0.9)]
 }
 
+// Full sweep: apply every vehicle's boundary in one go. Used for one-shot
+// syncs (new simulation, settle after playback stops) — during continuous
+// playback stepRouteSimLineProgress spreads the work instead.
 const applyRouteSimLineProgress = () => {
   const m = map.value
   if (!m || !mapLoaded.value) return
-  let finishOrderChanged = false
   for (const [vehicleId, fraction] of Object.entries(props.routeSimLineProgress || {})) {
-    const layerId = routeSimLineLayerId(vehicleId)
-    if (!m.getLayer(layerId)) continue
-    const boundary = Math.min(1, Math.max(0.000001, Number(fraction) || 0))
-    // A finished vehicle's line sinks below the ones still driving (and rises
-    // back when the clock is scrubbed backwards past its arrival).
-    const finished = boundary >= 1
-    if ((routeSimLineFinished[layerId] === true) !== finished) {
-      routeSimLineFinished[layerId] = finished
-      finishOrderChanged = true
-    }
-    // Skip sub-0.0001 moves (a few meters on city-scale routes): dwells and
-    // slow legs would otherwise churn paint updates for invisible changes.
-    if (Math.abs((routeSimLineLastBoundary[layerId] ?? -1) - boundary) < 0.0001) continue
-    routeSimLineLastBoundary[layerId] = boundary
-    m.setPaintProperty(layerId, 'line-gradient', routeSimLineGradient(vehicleId, boundary))
-  }
-  if (finishOrderChanged) {
-    routeSimLineLayerIds = [
-      ...routeSimLineLayerIds.filter((layerId) => routeSimLineFinished[layerId] === true),
-      ...routeSimLineLayerIds.filter((layerId) => routeSimLineFinished[layerId] !== true)
-    ]
-    enforceLayerOrder()
+    applyRouteSimLineBoundary(m, vehicleId, fraction)
   }
 }
 
@@ -1140,8 +1134,73 @@ const syncRouteSimLineLayers = () => {
   applyRouteSimLineProgress()
 }
 
+// Every setPaintProperty('line-gradient') makes MapLibre regenerate and
+// re-upload a gradient texture for EVERY visible tile containing that line —
+// at high zoom the route crosses many tiles, so updating all vehicles in the
+// same frame (whether at 60fps or on a throttle timer) produces visible
+// hitches. Instead the per-frame watcher advances ONE vehicle per call, round-
+// robin, spreading the texture work evenly across frames; with N vehicles each
+// boundary still refreshes every N frames (~6Hz for 10 vehicles), plenty for a
+// soft gradient split. The debounced full apply settles every boundary exactly
+// once updates stop (pause, seek, playback end).
+const ROUTE_SIM_GRADIENT_SETTLE_MS = 200
+let routeSimGradientCursor = 0
+let routeSimGradientSettleTimer = null
+
+const applyRouteSimLineBoundary = (m, vehicleId, fraction) => {
+  const layerId = routeSimLineLayerId(vehicleId)
+  if (!m.getLayer(layerId)) return false
+  const boundary = Math.min(1, Math.max(0.000001, Number(fraction) || 0))
+  // A finished vehicle's line sinks below the ones still driving (and rises
+  // back when the clock is scrubbed backwards past its arrival).
+  const finished = boundary >= 1
+  if ((routeSimLineFinished[layerId] === true) !== finished) {
+    routeSimLineFinished[layerId] = finished
+    routeSimLineLayerIds = [
+      ...routeSimLineLayerIds.filter((id) => routeSimLineFinished[id] === true),
+      ...routeSimLineLayerIds.filter((id) => routeSimLineFinished[id] !== true)
+    ]
+    enforceLayerOrder()
+  }
+  // Skip sub-0.0001 moves (a few meters on city-scale routes): dwells and
+  // slow legs would otherwise churn paint updates for invisible changes.
+  if (Math.abs((routeSimLineLastBoundary[layerId] ?? -1) - boundary) < 0.0001) return false
+  routeSimLineLastBoundary[layerId] = boundary
+  m.setPaintProperty(layerId, 'line-gradient', routeSimLineGradient(vehicleId, boundary))
+  return true
+}
+
+const stepRouteSimLineProgress = () => {
+  const m = map.value
+  if (!m || !mapLoaded.value) return
+  const entries = Object.entries(props.routeSimLineProgress || {})
+  for (let i = 0; i < entries.length; i++) {
+    const index = (routeSimGradientCursor + i) % entries.length
+    if (applyRouteSimLineBoundary(m, entries[index][0], entries[index][1])) {
+      routeSimGradientCursor = index + 1
+      break
+    }
+  }
+  if (routeSimGradientSettleTimer != null) clearTimeout(routeSimGradientSettleTimer)
+  routeSimGradientSettleTimer = setTimeout(() => {
+    routeSimGradientSettleTimer = null
+    applyRouteSimLineProgress()
+  }, ROUTE_SIM_GRADIENT_SETTLE_MS)
+}
+
 watch(() => props.routeSimLinesGeoJson, syncRouteSimLineLayers)
-watch(() => props.routeSimLineProgress, applyRouteSimLineProgress)
+watch(() => props.routeSimLineProgress, stepRouteSimLineProgress)
+
+// Toggling the traveled-path colour changes the gradient for the same boundary,
+// so the sub-0.0001 skip guard would suppress it — clear the cache to force a
+// full re-apply of every vehicle's line.
+watch(
+  () => props.simulatorState?.traveledGrey,
+  () => {
+    routeSimLineLastBoundary = {}
+    applyRouteSimLineProgress()
+  }
+)
 
 onMounted(() => {
   createMap()
@@ -1149,6 +1208,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   hideDataHoverPopup()
+  if (routeSimGradientSettleTimer != null) {
+    clearTimeout(routeSimGradientSettleTimer)
+    routeSimGradientSettleTimer = null
+  }
   if (!map.value) return
   map.value.remove()
   map.value = null
@@ -1237,6 +1300,7 @@ onBeforeUnmount(() => {
       @set-window="emit('simulator-set-window', $event)"
       @toggle-live="emit('simulator-toggle-live')"
       @toggle-route-heatmap="emit('simulator-toggle-route-heatmap')"
+      @toggle-traveled-grey="emit('simulator-toggle-traveled-grey')"
       @stop="emit('simulator-stop')"
     />
 

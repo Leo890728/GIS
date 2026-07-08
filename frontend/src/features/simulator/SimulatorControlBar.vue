@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'toggle-route-heatmap', 'stop'])
+const emit = defineEmits(['set-time', 'toggle-play', 'set-speed', 'step', 'toggle-smooth', 'select-segment', 'set-window', 'toggle-live', 'toggle-route-heatmap', 'toggle-traveled-grey', 'stop'])
 
 const fmt = (ms) => {
   if (ms == null) return '--'
@@ -317,6 +317,17 @@ const onTrackKeydown = (event) => {
         @click="emit('toggle-route-heatmap')"
       >
         <span class="sim-bar-smooth-label">熱力</span>
+      </button>
+      <button
+        v-if="simulatorState.mode === 'route-plan'"
+        class="sim-bar-smooth"
+        :class="{ active: simulatorState.traveledGrey }"
+        type="button"
+        :aria-pressed="simulatorState.traveledGrey === true"
+        title="已走過的路段以灰色顯示，避免多條路線重疊時半透明混色"
+        @click="emit('toggle-traveled-grey')"
+      >
+        <span class="sim-bar-smooth-label">路徑灰化</span>
       </button>
       <button
         v-if="simulatorState.mode !== 'route-plan'"
