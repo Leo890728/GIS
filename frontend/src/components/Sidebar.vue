@@ -1,16 +1,13 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import {
   Circle,
   Database,
-  Hand,
   History,
   Navigation,
-  MousePointer2,
   PanelLeftClose,
   PanelLeftOpen,
   Pentagon,
-  Slash,
   Square
 } from 'lucide-vue-next'
 import DataPanel from '../features/data/DataPanel.vue'
@@ -137,6 +134,14 @@ const emit = defineEmits([
 
 const activeMode = ref('ranges')
 
+// Map-pick is a ranges-tab tool; leaving the tab turns it off so map clicks in
+// other modes don't keep toggling boundaries behind the scenes.
+watch(activeMode, (mode) => {
+  if (mode !== 'ranges' && props.rangePickModeEnabled) {
+    emit('set-range-pick-mode-enabled', false)
+  }
+})
+
 const modeLabels = {
   basemap: '底圖',
   layers: '邊界',
@@ -153,20 +158,6 @@ const openMode = (mode) => {
   }
 }
 
-const drawingTools = [
-  [
-    { key: 'draw-box', label: '框選', icon: MousePointer2, active: false },
-    { key: 'edit', label: '編輯', icon: Hand, active: false }
-  ],
-  [
-    { key: 'lasso', label: '套索', icon: Slash, active: false },
-    { key: 'polygon', label: '多邊形', icon: Pentagon, active: true }
-  ],
-  [
-    { key: 'rect-area', label: '矩形範圍', icon: Square, active: false },
-    { key: 'circle-area', label: '圓形範圍', icon: Circle, active: false }
-  ]
-]
 </script>
 
 <template>
@@ -380,25 +371,6 @@ const drawingTools = [
         @set-range-point-filter-enabled="emit('set-range-point-filter-enabled', $event)"
       />
 
-      <section v-if="activeMode === 'ranges'" class="tools-panel">
-        <h3>範圍繪製工具</h3>
-        <div class="tools-grid">
-          <div v-for="row in drawingTools" :key="row[0].key" class="tool-row">
-            <button
-              v-for="tool in row"
-              :key="tool.key"
-              class="tool-btn"
-              :class="{ active: tool.active }"
-              type="button"
-            >
-              <span class="tool-icon" aria-hidden="true">
-                <component :is="tool.icon" :size="16" class="tool-icon-svg" />
-              </span>
-              <span>{{ tool.label }}</span>
-            </button>
-          </div>
-        </div>
-      </section>
     </template>
   </aside>
 </template>
@@ -547,8 +519,7 @@ const drawingTools = [
   gap: 6px;
 }
 
-.panel-title-row h3,
-.tools-panel h3 {
+.panel-title-row h3 {
   margin: 0;
   font-size: 14px;
 }
@@ -708,69 +679,10 @@ const drawingTools = [
   margin-left: auto;
 }
 
-.tools-panel {
-  display: grid;
-  gap: 10px;
-  margin-top: auto;
-}
-
-.tools-grid,
-.tool-row {
-  display: grid;
-  gap: 8px;
-}
-
-.tool-row {
-  grid-template-columns: 1fr 1fr;
-}
-
-.tool-btn {
-  border-radius: 10px;
-  border: 1px solid #2a3a54;
-  background: #1a2940;
-  color: #d6e6ff;
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  padding: 8px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.tool-btn.active {
-  border-color: #5fa3e3;
-  background: #2a4d7a;
-  color: #eaf4ff;
-  font-weight: 700;
-}
-
-.tool-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 20px;
-  border-radius: 6px;
-  background: rgba(207, 227, 255, 0.1);
-}
-
-.tool-icon-svg {
-  display: block;
-}
-
 @media (max-width: 1100px) {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid #2f4668;
-  }
-
-  .tools-panel {
-    margin-top: 0;
-  }
-}
-
-@media (max-width: 640px) {
-  .tool-row {
-    grid-template-columns: 1fr;
   }
 }
 </style>
