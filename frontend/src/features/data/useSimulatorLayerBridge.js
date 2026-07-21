@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { emptyFeatureCollection } from './dataApi'
-import { isDynamicLayer } from './dataLayerQueries'
+import { isReplayableLayer } from './dataLayerQueries'
 
 // The Simulator (history playback) takes over an existing dynamic data layer:
 // it pauses live polling for that layer (via the shared `simulatorLayerKey`) and
@@ -18,7 +18,7 @@ export const useSimulatorLayerBridge = ({ dataLayerState, setLayerGeoJson, refre
 
   const getSimulatorCandidates = () =>
     Object.entries(dataLayerState.value)
-      .filter(([, layer]) => isDynamicLayer(layer))
+      .filter(([, layer]) => isReplayableLayer(layer))
       .map(([key, layer]) => ({ key, dataId: layer.query?.dataId || layer.dataId, label: layer.label || key }))
 
   const exitSimulator = () => {

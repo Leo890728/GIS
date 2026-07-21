@@ -114,7 +114,7 @@ const createDataSourceRegistry = (apiBaseUrl) => ({
       groupBy: 'car_no',
       summary: { sumField: '', sumLabel: '總和', avgField: 'status', avgLabel: '平均狀態' }
     },
-    dynamic: { enabled: true, pollIntervalMs: 15000 },
+    dynamic: { enabled: true, pollIntervalMs: 15000, recorded: true },
     icons: [
       { id: 'tcg-v2-fallback', builder: buildTruckIcon, options: { color: '#5ec8f2' } },
       { id: 'tcg-v2-garbage-o01', src: '/icons/tcg-v2/noGarbage_truck_o01.png' },
@@ -335,6 +335,7 @@ const toLayerEntry = (entry) => {
     },
     dynamic: {
       enabled: false,
+      recorded: false,
       ...(entry.dynamic || {})
     },
     styleHandler: entry.styleHandler || null,

@@ -17,6 +17,12 @@ export const hasRangeRequestCodes = (request) => {
 
 export const isDynamicLayer = (layer) => layer?.dynamic?.enabled === true
 
+// A dynamic layer whose history the backend records; only these can be replayed
+// in the simulator. Live-only layers (no backend `history`) are excluded so the
+// simulator doesn't offer a dataset that has no recorded frames to play back.
+export const isReplayableLayer = (layer) =>
+  isDynamicLayer(layer) && layer?.dynamic?.recorded === true
+
 export const getDynamicPollInterval = (layer) => {
   const interval = Number(layer?.dynamic?.pollIntervalMs)
   if (!Number.isFinite(interval) || interval <= 0) return 60000
