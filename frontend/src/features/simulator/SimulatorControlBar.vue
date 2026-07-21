@@ -105,8 +105,39 @@ const timeFromClientX = (clientX) => {
   return Math.round(playFrom.value + ratio * span.value)
 }
 
+// The recording session a scrub is confined to. Set on pointer-down and held for
+// the whole drag so the scrubber stays inside one session instead of sweeping
+// across the gaps between them. Returns the session containing `ms`, or (when
+// `ms` lands in a gap) the nearest one.
+const segmentAt = (ms) => {
+  const segs = segments.value
+  if (ms == null || !segs.length) return null
+  let best = null
+  let bestDist = Infinity
+  for (const seg of segs) {
+    if (ms >= seg.from && ms <= seg.to) return seg
+    const dist = ms < seg.from ? seg.from - ms : ms - seg.to
+    if (dist < bestDist) {
+      bestDist = dist
+      best = seg
+    }
+  }
+  return best
+}
+
+// Clamp `ms` into `seg` (intersected with the visible window). No session ⇒ pass
+// through unchanged (single continuous recording).
+const clampToSegment = (ms, seg) => {
+  if (ms == null || !seg) return ms
+  const lo = Math.max(seg.from, playFrom.value)
+  const hi = Math.min(seg.to, playTo.value)
+  return Math.min(hi, Math.max(lo, ms))
+}
+
+let dragSegment = null
+
 const seekTo = (clientX) => {
-  const ms = timeFromClientX(clientX)
+  const ms = clampToSegment(timeFromClientX(clientX), dragSegment)
   if (ms != null) emit('set-time', ms)
 }
 
@@ -125,6 +156,9 @@ const onTrackPointerDown = (event) => {
     return
   }
   dragging.value = true
+  // Lock the scrub to the session under the cursor; a click on a gap snaps into
+  // (and drags stay within) the nearest session.
+  dragSegment = segmentAt(timeFromClientX(event.clientX))
   seekTo(event.clientX)
 }
 const onTrackPointerMove = (event) => {
@@ -155,6 +189,7 @@ const onTrackPointerMove = (event) => {
 const onTrackPointerUp = (event) => {
   dragging.value = false
   panning.value = false
+  dragSegment = null
   trackEl.value?.releasePointerCapture?.(event.pointerId)
 }
 
