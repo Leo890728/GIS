@@ -6,6 +6,7 @@ from flask import Blueprint, Response, abort, current_app, request, stream_with_
 
 from backend.schemas.data_points import parse_timestamp
 from backend.services.dataset_service import iso_utc
+from backend.services.history_track_service import TrackBuildCancelled
 from backend.services.point_query import feature_collection
 
 
@@ -130,7 +131,9 @@ def history_track_stream(data_id):
 
     def worker():
         try:
-            tracks = service.history_tracks(data_id, frm, to, progress_cb=on_progress)
+            tracks = service.history_tracks(
+                data_id, frm, to, progress_cb=on_progress, is_cancelled=cancelled.is_set
+            )
             # pop() releases each track (dict + serialized string) as soon as
             # the generator has flushed it to the client.
             while tracks:
@@ -146,6 +149,9 @@ def history_track_stream(data_id):
                     },
                 )
             )
+        except TrackBuildCancelled:
+            # Client disconnected and the build aborted itself; nothing to report.
+            pass
         except KeyError as err:
             put_event(_sse("error", {"message": str(err)}))
         except Exception:  # pragma: no cover - defensive: surface failure to client

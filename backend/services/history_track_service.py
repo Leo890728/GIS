@@ -34,6 +34,13 @@ from backend.geo.osrm import (
 
 logger = logging.getLogger(__name__)
 
+
+class TrackBuildCancelled(Exception):
+    """Raised to abort a track build whose caller (e.g. a disconnected SSE
+    client) has signalled cancellation, so OSRM routing stops instead of running
+    to completion for a result nobody will read."""
+
+
 DEFAULT_OSRM_BASE_URL = "http://localhost:5001"
 DEFAULT_PROFILE = "driving"
 DEFAULT_MIN_MOVE_M = 8.0
@@ -59,6 +66,9 @@ class TrackBuildOptions:
     max_url_length: int = DEFAULT_MAX_URL_LENGTH
     max_concurrency: int = DEFAULT_OSRM_CONCURRENCY
     progress_cb: Optional[Callable[[int, int], None]] = None
+    # Returns True once the caller wants the build aborted (e.g. the SSE client
+    # disconnected). Polled between OSRM legs so an abandoned build stops routing.
+    is_cancelled: Optional[Callable[[], bool]] = None
 
 
 @dataclass
@@ -224,38 +234,60 @@ def _plan_track_jobs(raw, options, leg_cache):
     return plans, jobs
 
 
+def _is_cancelled(options):
+    return options.is_cancelled is not None and options.is_cancelled()
+
+
 def _route_track_jobs(jobs, leg_router, leg_cache, options):
     """Phase 2: route all unique jobs concurrently; cache successes.
 
     Returns ``results`` mapping ``chain_key -> legs`` (or ``None`` on failure),
-    seeded with cross-build cache hits.
+    seeded with cross-build cache hits. Raises :class:`TrackBuildCancelled` if the
+    caller signals cancellation while jobs are still outstanding.
     """
     total = len(jobs)
     if options.progress_cb:
         options.progress_cb(0, total)
     results = dict(leg_cache)  # seed with cross-build cache hits (chain -> legs)
-    if jobs:
-        done = 0
-        with ThreadPoolExecutor(max_workers=min(options.max_concurrency, len(jobs))) as pool:
-            future_to_chain = {
-                pool.submit(leg_router, options.osrm_base_url, options.profile, coords): chain
-                for chain, coords in jobs.items()
-            }
-            for future in as_completed(future_to_chain):
-                chain = future_to_chain[future]
-                try:
-                    routed = future.result()
-                except Exception as err:  # network/OSRM failure -> straight-segment fallback
-                    logger.warning(
-                        "OSRM leg routing failed (%s); falling back to straight segments", err
-                    )
-                    routed = None
-                results[chain] = routed
-                if routed is not None:
-                    leg_cache[chain] = routed
-                done += 1
-                if options.progress_cb:
-                    options.progress_cb(done, total)
+    if not jobs:
+        return results
+    if _is_cancelled(options):
+        raise TrackBuildCancelled()
+
+    done = 0
+    pool = ThreadPoolExecutor(max_workers=min(options.max_concurrency, len(jobs)))
+    future_to_chain = {
+        pool.submit(leg_router, options.osrm_base_url, options.profile, coords): chain
+        for chain, coords in jobs.items()
+    }
+    try:
+        for future in as_completed(future_to_chain):
+            # A disconnected client (aborted stream) cancels the build: stop
+            # feeding OSRM. The `finally` cancels the still-queued jobs; the few
+            # already in flight finish in the background but are bounded by
+            # `max_concurrency`, so an abandoned build can no longer storm OSRM.
+            if _is_cancelled(options):
+                raise TrackBuildCancelled()
+            chain = future_to_chain[future]
+            try:
+                routed = future.result()
+            except Exception as err:  # network/OSRM failure -> straight-segment fallback
+                logger.warning(
+                    "OSRM leg routing failed (%s); falling back to straight segments", err
+                )
+                routed = None
+            results[chain] = routed
+            if routed is not None:
+                leg_cache[chain] = routed
+            done += 1
+            if options.progress_cb:
+                options.progress_cb(done, total)
+    finally:
+        # Cancel queued (unstarted) futures so a cancelled build issues no further
+        # OSRM requests, and don't block on the in-flight ones.
+        for future in future_to_chain:
+            future.cancel()
+        pool.shutdown(wait=False)
     return results
 
 
@@ -310,6 +342,7 @@ def build_entity_tracks(
     max_url_length=DEFAULT_MAX_URL_LENGTH,
     max_concurrency=DEFAULT_OSRM_CONCURRENCY,
     progress_cb=None,
+    is_cancelled=None,
     keys=None,
 ):
     """Build road-following, time-stamped tracks per entity (plan/route/assemble).
@@ -330,6 +363,7 @@ def build_entity_tracks(
         max_url_length=max_url_length,
         max_concurrency=max_concurrency,
         progress_cb=progress_cb,
+        is_cancelled=is_cancelled,
     )
 
     if leg_router is None:
@@ -348,6 +382,8 @@ def build_entity_tracks(
     if keys is not None:
         wanted = set(keys)
         raw = {key: info for key, info in raw.items() if key in wanted}
+    if _is_cancelled(options):
+        raise TrackBuildCancelled()
     plans, jobs = _plan_track_jobs(raw, options, leg_cache)
     results = _route_track_jobs(jobs, leg_router, leg_cache, options)
     return _assemble_track_results(plans, results, options)

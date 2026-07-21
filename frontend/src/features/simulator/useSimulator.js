@@ -86,6 +86,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   let rafId = null
   let lastTickReal = null
   let debounceTimer = null
+  let smoothReloadTimer = null
 
   const isRoutePlanMode = () => state.mode === 'route-plan'
 
@@ -259,12 +260,26 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
   // After the playback window changes: if smoothing is on but the loaded
   // tracks don't cover the new window, rebuild them for it (smoothing is
   // window-scoped so big datasets only smooth the session being watched).
-  const reloadSmoothForWindow = () => {
-    if (!state.smooth) return
+  const needsSmoothReload = () => {
+    if (!state.smooth) return false
     const lo = state.playFrom ?? state.from
     const hi = state.playTo ?? state.to
-    if (lo == null || hi == null || smooth.coversWindow(lo, hi)) return
-    smooth.loadTracks().catch((error) => console.error(error))
+    return lo != null && hi != null && !smooth.coversWindow(lo, hi)
+  }
+
+  const reloadSmoothForWindow = () => {
+    if (smoothReloadTimer) clearTimeout(smoothReloadTimer)
+    if (!needsSmoothReload()) return
+    // Wheel-zoom and shift-pan fire set-window many times per second; without
+    // this debounce each uncovered window kicks off a fresh OSRM track build,
+    // and (because an aborted build keeps routing server-side) they pile up into
+    // an OSRM request storm. Coalesce the burst into one reload once the window
+    // settles; re-check coverage at fire time in case zooming back in covered it.
+    smoothReloadTimer = setTimeout(() => {
+      smoothReloadTimer = null
+      if (!needsSmoothReload()) return
+      smooth.loadTracks().catch((error) => console.error(error))
+    }, 250)
   }
 
   const setSmooth = async (enabled) => {
@@ -402,6 +417,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     smooth.disable()
     live.stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
+    if (smoothReloadTimer) clearTimeout(smoothReloadTimer)
     frame.invalidate()
     frame.reset()
     selectedTrack.reset()
@@ -453,6 +469,7 @@ export const useSimulator = (apiBaseUrl, dataLayers) => {
     smooth.abortLoad()
     live.stopLive()
     if (debounceTimer) clearTimeout(debounceTimer)
+    if (smoothReloadTimer) clearTimeout(smoothReloadTimer)
   })
 
   return {

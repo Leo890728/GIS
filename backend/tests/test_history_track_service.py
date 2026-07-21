@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from backend.services.history_db import HistoryDb
-from backend.services.history_track_service import build_entity_tracks
+from backend.services.history_track_service import TrackBuildCancelled, build_entity_tracks
 
 KEY_FIELDS = ["car"]
 IGNORE = ("time", "timestamp")
@@ -212,6 +212,40 @@ class HistoryTrackServiceTestCase(unittest.TestCase):
         )
         self.assertEqual(2, len(tracks))
         self.assertGreaterEqual(peak["max"], 2)  # both jobs ran at the same time
+
+    def test_cancellation_aborts_and_stops_routing_remaining_jobs(self):
+        # A build whose caller signals cancellation raises TrackBuildCancelled and
+        # stops issuing OSRM requests instead of routing every job to completion.
+        self._append(_t(0), [_feat("A", 120.0, 24.0, _t(0)), _feat("B", 121.0, 24.0, _t(0))])
+        self._append(_t(1), [_feat("A", 120.01, 24.0, _t(1)), _feat("B", 121.01, 24.0, _t(1))])
+
+        cancelled = {"flag": False}
+
+        def router(base_url, profile, coords):
+            self.calls.append([tuple(c) for c in coords])
+            cancelled["flag"] = True  # first routed job trips cancellation
+            return [[list(coords[i]), list(coords[i + 1])] for i in range(len(coords) - 1)]
+
+        with self.assertRaises(TrackBuildCancelled):
+            build_entity_tracks(
+                self.db, "ds", KEY_FIELDS, None, None,
+                leg_router=router, leg_cache={},
+                max_concurrency=1,  # serialize so the cancel check runs between jobs
+                is_cancelled=lambda: cancelled["flag"],
+            )
+        # Two entities = two jobs, but the second is never routed after cancel.
+        self.assertEqual(1, len(self.calls))
+
+    def test_cancellation_before_routing_raises_without_routing(self):
+        # Already-cancelled at entry: nothing is routed at all.
+        self._two_leg_setup()
+        with self.assertRaises(TrackBuildCancelled):
+            build_entity_tracks(
+                self.db, "ds", KEY_FIELDS, None, None,
+                leg_router=self._identity_router(), leg_cache={},
+                is_cancelled=lambda: True,
+            )
+        self.assertEqual(0, len(self.calls))
 
     def test_gap_splits_track_into_segments(self):
         # A long time gap between captures = recording interruption -> split, and
