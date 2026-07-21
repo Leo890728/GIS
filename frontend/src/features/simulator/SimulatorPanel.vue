@@ -355,8 +355,7 @@ const onSliderInput = (event) => {
 }
 
 .sim-session-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 6px;
 }
 
